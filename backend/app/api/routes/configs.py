@@ -8,8 +8,9 @@ from app.models.user import User
 from app.models.config import Config
 from app.schemas.config import ConfigCreate, ConfigRead, SignedURL
 from app.core.auth import require_roles
-from app.storage.local import save_file, sign_path, verify_signature
+from app.storage.local import save_file, sign_path, verify_signature, delete_file
 from app.core.limiter import limiter
+from app.services.audit import record_audit_event
 
 router = APIRouter()
 
@@ -28,9 +29,35 @@ async def upload_config(title: str, file: UploadFile = File(...), db: Session = 
     db.add(cfg)
     db.commit()
     db.refresh(cfg)
+    record_audit_event(db, current_user.id, "upload_config", target=str(cfg.id), meta={"title": title})
     sig, exp = sign_path(file_path)
     url = f"/api/configs/{cfg.id}/download?sig={sig}&exp={exp}"
     return SignedURL(url=url, expires_in=exp)
+
+
+@router.put("/configs/{config_id}", response_model=ConfigRead)
+async def update_config(config_id: int, title: str, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    cfg = db.query(Config).filter(Config.id == config_id).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Config not found")
+    cfg.title = title
+    db.add(cfg)
+    db.commit()
+    db.refresh(cfg)
+    record_audit_event(db, current_user.id, "update_config", target=str(cfg.id))
+    return cfg
+
+
+@router.delete("/configs/{config_id}")
+async def delete_config(config_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin"]))):
+    cfg = db.query(Config).filter(Config.id == config_id).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Config not found")
+    delete_file(cfg.file_path)
+    db.delete(cfg)
+    db.commit()
+    record_audit_event(db, current_user.id, "delete_config", target=str(config_id))
+    return {"status": "deleted"}
 
 
 @router.get("/configs/{config_id}/download")

@@ -27,7 +27,7 @@ app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 
 # Routers
-from app.api.routes import auth, users, configs, audit, control, monitoring, ws, nodes  # noqa: E402
+from app.api.routes import auth, users, configs, audit, control, monitoring, ws, nodes, notifications  # noqa: E402
 
 app.include_router(auth.router, prefix=settings.api_prefix, tags=["auth"])
 app.include_router(users.router, prefix=settings.api_prefix, tags=["users"])
@@ -36,6 +36,7 @@ app.include_router(audit.router, prefix=settings.api_prefix, tags=["audit"])
 app.include_router(control.router, prefix=settings.api_prefix, tags=["control"])
 app.include_router(monitoring.router, prefix=settings.api_prefix, tags=["monitoring"])
 app.include_router(nodes.router, prefix=settings.api_prefix, tags=["nodes"])
+app.include_router(notifications.router, prefix=settings.api_prefix, tags=["notifications"])
 app.include_router(ws.router, tags=["ws"])  # path defined inside router
 
 

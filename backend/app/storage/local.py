@@ -21,6 +21,15 @@ def save_file(filename: str, content: bytes) -> str:
     return full_path
 
 
+def delete_file(file_path: str) -> None:
+    try:
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)
+    except Exception:
+        # swallow errors for now
+        pass
+
+
 def sign_path(file_path: str, expires_in: int = 3600) -> Tuple[str, int]:
     expires_at = int(time.time()) + expires_in
     payload = f"{file_path}:{expires_at}"

@@ -22,7 +22,7 @@ services:
 
   backend:
     build:
-      context: /workspace
+      context: .
       dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://admin:admin@postgres:5432/marzban
@@ -30,6 +30,8 @@ services:
       SECRET_KEY: change-me
       CORS_ORIGINS: http://localhost:3000
       API_PREFIX: /api
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin123
     depends_on:
       - postgres
       - redis
@@ -40,7 +42,7 @@ services:
 
   frontend:
     build:
-      context: /workspace/frontend
+      context: ./frontend
       dockerfile: Dockerfile
     depends_on:
       - backend
@@ -48,6 +50,20 @@ services:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
     ports:
       - "3000:3000"
+
+  db-backup:
+    image: postgres:16
+    environment:
+      PGHOST: postgres
+      PGUSER: admin
+      PGPASSWORD: admin
+      PGDATABASE: marzban
+      TZ: UTC
+    depends_on:
+      - postgres
+    volumes:
+      - dbbackups:/backups
+    entrypoint: ["bash", "-lc", "while true; do TS=\$(date -u +%Y%m%d_%H%M%S); pg_dump -Fc -f /backups/marzban_\"$TS\".dump && echo Backup done at \"$TS\"; sleep 86400; done"]
 
   nginx:
     image: nginx:1.27-alpine
@@ -66,3 +82,4 @@ volumes:
   pgdata:
   redisdata:
   backend-data:
+  dbbackups:
