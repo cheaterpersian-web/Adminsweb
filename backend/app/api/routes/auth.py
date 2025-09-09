@@ -8,11 +8,13 @@ from app.db.session import get_db
 from app.models.user import User
 from app.core.security import verify_password, create_access_token, create_refresh_token
 from app.services.audit import record_audit_event
+from app.core.limiter import limiter
 
 router = APIRouter()
 
 
 @router.post("/auth/login", response_model=TokenPair)
+@limiter.limit("10/minute")
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password) or not user.is_active:
@@ -27,6 +29,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/refresh", response_model=TokenPair)
+@limiter.limit("30/minute")
 def refresh_token(refresh_token: str):
     # For simplicity, we trust the provided refresh token and issue a new access token if valid
     from jose import jwt, JWTError
