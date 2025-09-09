@@ -1,0 +1,85 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: marzban
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "900 1", "300 10", "60 10000", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://admin:admin@postgres:5432/marzban
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: change-me
+      CORS_ORIGINS: http://localhost:3000
+      API_PREFIX: /api
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin123
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend-data:/data
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000/api
+    ports:
+      - "3000:3000"
+
+  db-backup:
+    image: postgres:16
+    environment:
+      PGHOST: postgres
+      PGUSER: admin
+      PGPASSWORD: admin
+      PGDATABASE: marzban
+      TZ: UTC
+    depends_on:
+      - postgres
+    volumes:
+      - dbbackups:/backups
+    entrypoint: ["bash", "-lc", "while true; do TS=\$(date -u +%Y%m%d_%H%M%S); pg_dump -Fc -f /backups/marzban_\"$TS\".dump && echo Backup done at \"$TS\"; sleep 86400; done"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+
+volumes:
+  pgdata:
+  redisdata:
+  backend-data:
+  dbbackups:
