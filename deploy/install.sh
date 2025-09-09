@@ -186,7 +186,7 @@ services:
       - postgres
     volumes:
       - dbbackups:/backups
-    entrypoint: ["bash", "-lc", "while true; do TS=\\$(date -u +%Y%m%d_%H%M%S); pg_dump -Fc -f /backups/marzban_\\"$TS\\".dump && echo Backup done at \\"$TS\\"; sleep 86400; done"]
+    entrypoint: ["bash", "-lc", "while true; do TS=\$(date -u +%Y%m%d_%H%M%S); pg_dump -Fc -f /backups/marzban_\\"\$TS\\".dump && echo Backup done at \\"\$TS\\"; sleep 86400; done"]
 
   nginx:
     image: nginx:1.27-alpine
