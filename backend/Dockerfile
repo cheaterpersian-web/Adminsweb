@@ -14,4 +14,7 @@ COPY backend /app
 
 EXPOSE 8000
 
-CMD ["python", "app/alembic_entrypoint.py"]
+# Ensure the `app` package is importable and run entrypoint as a module
+ENV PYTHONPATH=/app
+
+CMD ["python", "-m", "app.alembic_entrypoint"]
