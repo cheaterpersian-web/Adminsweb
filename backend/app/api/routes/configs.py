@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 from fastapi.responses import FileResponse
@@ -22,7 +22,7 @@ def list_configs(db: Session = Depends(get_db), _: User = Depends(require_roles(
 
 @router.post("/configs", response_model=SignedURL)
 @limiter.limit("10/minute")
-async def upload_config(title: str, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+async def upload_config(request: Request, title: str, file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     content = await file.read()
     file_path = save_file(file.filename, content)
     cfg = Config(title=title, file_path=file_path, uploaded_by=current_user.id)
