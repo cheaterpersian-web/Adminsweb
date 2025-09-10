@@ -30,9 +30,13 @@ export default function PanelsPage() {
     setBusy(true);
     setTestMsg(null);
     try {
-      await apiFetch("/panels", { method: "POST", body: JSON.stringify(form) });
+      const p = await apiFetch("/panels", { method: "POST", body: JSON.stringify(form) });
       setForm({ name: "", base_url: "", username: "", password: "" });
       await load();
+      if (p && p.id) {
+        setSelectedPanelId(String(p.id));
+        await loadInbounds(p.id);
+      }
     } finally { setBusy(false); }
   };
 
