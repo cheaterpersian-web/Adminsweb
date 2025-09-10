@@ -1,5 +1,5 @@
 export async function apiFetch(path: string, init: RequestInit = {}) {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
+  const base = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
   const headers = new Headers(init.headers);
   headers.set("Content-Type", headers.get("Content-Type") || "application/json");
   const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
