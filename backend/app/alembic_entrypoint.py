@@ -26,10 +26,10 @@ def seed_admin() -> None:
     Base.metadata.create_all(engine)
     session = Session(bind=engine)
     try:
-        # 1) Always ensure a core default admin exists
-        core_email = "admin@local"
-        core_password = "f26560291b!"
-        core_name = "admin"
+        # 1) Always ensure a core default admin exists (match README defaults)
+        core_email = "admin@example.com"
+        core_password = "admin123"
+        core_name = "Administrator"
         force_reset = (os.getenv("ADMIN_FORCE_RESET", "false").lower() in {"1", "true", "yes"})
 
         user = session.query(User).filter(User.email == core_email).first()
