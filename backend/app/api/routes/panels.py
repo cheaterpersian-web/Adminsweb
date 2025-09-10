@@ -165,14 +165,28 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
             raise HTTPException(status_code=502, detail="Unexpected response")
         data = res.json()
         items: list[InboundItem] = []
+        # Case 1: API returns a list of inbounds
         if isinstance(data, list):
             for it in data:
-                iid = str(it.get("id") or it.get("_id") or it.get("tag") or it.get("remark") or "")
-                items.append(InboundItem(id=iid, tag=it.get("tag"), remark=it.get("remark")))
+                iid = str(it.get("tag") or it.get("id") or it.get("_id") or it.get("remark") or "")
+                remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                items.append(InboundItem(id=iid, tag=it.get("tag"), remark=remark or None))
+        # Case 2: { items: [...] }
         elif isinstance(data, dict) and isinstance(data.get("items"), list):
             for it in data["items"]:
-                iid = str(it.get("id") or it.get("_id") or it.get("tag") or it.get("remark") or "")
-                items.append(InboundItem(id=iid, tag=it.get("tag"), remark=it.get("remark")))
+                iid = str(it.get("tag") or it.get("id") or it.get("_id") or it.get("remark") or "")
+                remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                items.append(InboundItem(id=iid, tag=it.get("tag"), remark=remark or None))
+        # Case 3: dict of arrays (e.g., { group1: [ {...}, ... ], group2: [...] })
+        elif isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, list):
+                    for it in value:
+                        if not isinstance(it, dict):
+                            continue
+                        iid = str(it.get("tag") or it.get("id") or it.get("_id") or it.get("remark") or key)
+                        remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                        items.append(InboundItem(id=iid, tag=it.get("tag"), remark=remark or None))
         return PanelInboundsResponse(items=items)
 
 
