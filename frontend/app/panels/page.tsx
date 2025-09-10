@@ -18,11 +18,19 @@ export default function PanelsPage() {
   const [selectedPanelId, setSelectedPanelId] = useState<string>("");
   const [selectedInbound, setSelectedInbound] = useState<string>("");
   const [hosts, setHosts] = useState<HostItem[] | null>(null);
+  const [savedByPanel, setSavedByPanel] = useState<Record<number, string[]>>({});
 
   const load = async () => {
     try {
       const data = await apiFetch("/panels");
       setPanels(data);
+      // load saved selections for each panel
+      try {
+        await Promise.all((data as Panel[]).map(async (p: Panel) => {
+          const sel = await apiFetch(`/panels/${p.id}/inbound`);
+          setSavedByPanel(prev => ({ ...prev, [p.id]: sel.inbound_ids || [] }));
+        }));
+      } catch {}
     } catch {}
   };
   useEffect(() => { load(); }, []);
@@ -104,6 +112,7 @@ export default function PanelsPage() {
       const selectedIds = Array.from(document.querySelectorAll<HTMLInputElement>("input[name=panel-inbound]:checked")).map(el => el.value);
       await apiFetch(`/panels/${pid}/inbound`, { method: "POST", body: JSON.stringify({ inbound_ids: selectedIds }) });
       setTestMsg("این‌باند ذخیره شد");
+      setSavedByPanel(prev => ({ ...prev, [pid]: selectedIds }));
     } catch (e:any) {
       setTestMsg(e.message || "خطا در ذخیره این‌باند");
     } finally { setBusy(false); }
@@ -188,13 +197,14 @@ export default function PanelsPage() {
         </CardHeader>
         <CardContent>
           <div className="overflow-auto">
-            <table className="min-w-full sm:min-w-[700px] w-full text-sm border">
+            <table className="min-w-full sm:min-w-[900px] w-full text-sm border">
               <thead className="bg-secondary">
                 <tr>
                   <th className="p-2 text-left hidden sm:table-cell">ID</th>
                   <th className="p-2 text-left">Name</th>
                   <th className="p-2 text-left">Base URL</th>
                   <th className="p-2 text-left hidden md:table-cell">Username</th>
+                  <th className="p-2 text-left">Selected Inbounds</th>
                 </tr>
               </thead>
               <tbody>
@@ -204,6 +214,14 @@ export default function PanelsPage() {
                     <td className="p-2">{p.name}</td>
                     <td className="p-2">{p.base_url}</td>
                     <td className="p-2 hidden md:table-cell">{p.username}</td>
+                    <td className="p-2">
+                      <div className="flex flex-wrap gap-1">
+                        {(savedByPanel[p.id] || []).map((id)=> (
+                          <span key={id} className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs">{id}</span>
+                        ))}
+                        {(!savedByPanel[p.id] || savedByPanel[p.id].length===0) && <span className="text-xs text-muted-foreground">-</span>}
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {panels.length === 0 && (
