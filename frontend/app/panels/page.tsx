@@ -76,7 +76,7 @@ export default function PanelsPage() {
               <label className="text-sm">Password</label>
               <input type="password" className="w-full h-10 px-3 rounded-md border bg-background" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))} required />
             </div>
-            <div className="flex gap-2 col-span-full">
+            <div className="flex flex-col sm:flex-row gap-2 col-span-full">
               <Button type="button" variant="outline" onClick={testPanel} disabled={busy || !form.base_url || !form.username || !form.password}>تست اتصال</Button>
               <Button type="submit" disabled={busy || !form.name || !form.base_url || !form.username || !form.password}>ذخیره پنل</Button>
             </div>
@@ -91,22 +91,22 @@ export default function PanelsPage() {
         </CardHeader>
         <CardContent>
           <div className="overflow-auto">
-            <table className="min-w-[700px] w-full text-sm border">
+            <table className="min-w-full sm:min-w-[700px] w-full text-sm border">
               <thead className="bg-secondary">
                 <tr>
-                  <th className="p-2 text-left">ID</th>
+                  <th className="p-2 text-left hidden sm:table-cell">ID</th>
                   <th className="p-2 text-left">Name</th>
                   <th className="p-2 text-left">Base URL</th>
-                  <th className="p-2 text-left">Username</th>
+                  <th className="p-2 text-left hidden md:table-cell">Username</th>
                 </tr>
               </thead>
               <tbody>
                 {panels.map(p => (
                   <tr key={p.id} className="border-t">
-                    <td className="p-2">{p.id}</td>
+                    <td className="p-2 hidden sm:table-cell">{p.id}</td>
                     <td className="p-2">{p.name}</td>
                     <td className="p-2">{p.base_url}</td>
-                    <td className="p-2">{p.username}</td>
+                    <td className="p-2 hidden md:table-cell">{p.username}</td>
                   </tr>
                 ))}
                 {panels.length === 0 && (
