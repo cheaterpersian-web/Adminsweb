@@ -1,76 +1,91 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 
 export default function ConfigsPage() {
-  const [configs, setConfigs] = useState<any[]>([]);
-  const [file, setFile] = useState<File | null>(null);
-  const [title, setTitle] = useState("");
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [volumeGb, setVolumeGb] = useState<string>("");
+  const [durationDays, setDurationDays] = useState<string>("");
+  const [panelId, setPanelId] = useState<string>("");
+  const [panels, setPanels] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
 
-  const load = async () => {
-    const data = await apiFetch("/configs");
-    setConfigs(data);
+  const loadPanels = async () => {
+    try {
+      const data = await apiFetch("/panels");
+      setPanels(data);
+      if (data.length && !panelId) setPanelId(String(data[0].id));
+    } catch {}
   };
-  useEffect(() => { load(); }, []);
+  if (panels === null) { void loadPanels(); }
 
-  const upload = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
-    const base = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
-    const form = new FormData();
-    form.append("title", title);
-    form.append("file", file);
-    const token = localStorage.getItem("access_token") || "";
-    const res = await fetch(base + "/configs", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
-    if (res.ok) {
-      setTitle(""); setFile(null); load();
-    }
-  };
-
-  const updateTitle = async (id: number, newTitle: string) => {
-    setBusyId(id);
+    setBusy(true);
+    setResult(null);
     try {
-      const base = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
-      const token = localStorage.getItem("access_token") || "";
-      const res = await fetch(`${base}/configs/${id}?title=${encodeURIComponent(newTitle)}`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) load();
-    } finally { setBusyId(null); }
-  };
-
-  const deleteConfig = async (id: number) => {
-    setBusyId(id);
-    try {
-      await apiFetch(`/configs/${id}`, { method: "DELETE" });
-      load();
-    } finally { setBusyId(null); }
+      const pid = parseInt(panelId, 10);
+      const payload = { name, volume_gb: parseFloat(volumeGb), duration_days: parseInt(durationDays, 10) };
+      const res = await apiFetch(`/panels/${pid}/create_user`, { method: "POST", body: JSON.stringify(payload) });
+      if (res.ok) {
+        setResult({ username: res.username, sub: res.subscription_url });
+      } else {
+        setResult({ error: res.error || "خطا در ساخت کاربر" });
+      }
+    } catch (e:any) {
+      setResult({ error: e.message || "خطا" });
+    } finally { setBusy(false); }
   };
 
   return (
-    <main className="p-6 space-y-4">
-      <h1 className="text-2xl font-semibold">Configs</h1>
-      <form onSubmit={upload} className="flex flex-wrap gap-2 items-end">
-        <input className="border rounded-md h-10 px-3" placeholder="Title" value={title} onChange={e=>setTitle(e.target.value)} />
-        <input type="file" onChange={e=>setFile(e.target.files?.[0] || null)} />
-        <button className="border rounded-md h-10 px-4 bg-primary text-primary-foreground" type="submit">Upload</button>
-      </form>
+    <main className="space-y-6">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold">Configs</h1>
+        <p className="text-sm text-muted-foreground">ایجاد کاربر در پنل مرزبان و دریافت لینک ساب</p>
+      </div>
 
-      <ul className="space-y-2">
-        {configs.map((c:any)=> (
-          <li key={c.id} className="border rounded-md p-3 flex items-center justify-between gap-3">
-            <div className="flex-1 min-w-0">
-              <input className="border rounded-md h-9 px-2 w-full" defaultValue={c.title} onBlur={e=>updateTitle(c.id, e.target.value)} />
-              <div className="text-xs text-muted-foreground mt-1 truncate">{c.file_path}</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>ایجاد کاربر و لینک Subscription</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+            <div className="space-y-1">
+              <label className="text-sm">نام کاربر</label>
+              <input className="w-full h-10 px-3 rounded-md border bg-background" value={name} onChange={e=>setName(e.target.value)} placeholder="example_user" required />
             </div>
-            <div className="flex items-center gap-2">
-              <button className="border rounded-md h-9 px-3" disabled={busyId===c.id} onClick={()=>deleteConfig(c.id)}>Delete</button>
+            <div className="space-y-1">
+              <label className="text-sm">حجم (GB)</label>
+              <input inputMode="decimal" className="w-full h-10 px-3 rounded-md border bg-background" value={volumeGb} onChange={e=>setVolumeGb(e.target.value)} placeholder="50" required />
             </div>
-          </li>
-        ))}
-      </ul>
+            <div className="space-y-1">
+              <label className="text-sm">مدت (روز)</label>
+              <input inputMode="numeric" className="w-full h-10 px-3 rounded-md border bg-background" value={durationDays} onChange={e=>setDurationDays(e.target.value)} placeholder="30" required />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">پنل مقصد</label>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={panelId} onChange={e=>setPanelId(e.target.value)} required>
+                {(panels || []).map((p:any)=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
+              </select>
+            </div>
+            <div className="col-span-full flex flex-col sm:flex-row gap-2">
+              <Button type="submit" disabled={busy || !name || !volumeGb || !durationDays || !panelId}>ایجاد کاربر</Button>
+            </div>
+            {result && result.error && <div className="col-span-full text-sm bg-red-500/10 text-red-600 border border-red-500/30 rounded-md p-2">{result.error}</div>}
+            {result && !result.error && (
+              <div className="col-span-full text-sm bg-green-500/10 text-green-700 border border-green-500/30 rounded-md p-2">
+                <div>ساخته شد: {result.username}</div>
+                {result.sub && (
+                  <div className="truncate">Subscription: <a className="underline" href={result.sub} target="_blank" rel="noreferrer">{result.sub}</a></div>
+                )}
+              </div>
+            )}
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }
