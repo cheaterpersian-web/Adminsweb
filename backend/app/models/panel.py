@@ -10,4 +10,6 @@ class Panel(Base):
     base_url = Column(String(512), nullable=False)
     username = Column(String(255), nullable=False)
     password = Column(String(255), nullable=False)
+    inbound_id = Column(String(255), nullable=True)
+    inbound_tag = Column(String(255), nullable=True)
 

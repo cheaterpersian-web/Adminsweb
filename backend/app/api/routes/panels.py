@@ -33,6 +33,8 @@ class PanelRead(BaseModel):
     name: str
     base_url: AnyHttpUrl
     username: str
+    inbound_id: Optional[str] = None
+    inbound_tag: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -137,6 +139,61 @@ async def test_panel(payload: PanelTestRequest, _: User = Depends(require_roles(
     return PanelTestResponse(ok=False, endpoint=endpoint, status=status, error=info)
 
 
+class InboundItem(BaseModel):
+    id: str
+    tag: Optional[str] = None
+    remark: Optional[str] = None
+
+
+class PanelInboundsResponse(BaseModel):
+    items: list[InboundItem]
+
+
+@router.get("/panels/{panel_id}/inbounds", response_model=PanelInboundsResponse)
+async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}"}
+    url = panel.base_url.rstrip("/") + "/api/inbounds"
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        res = await client.get(url, headers=headers)
+        if not res.headers.get("content-type", "").startswith("application/json"):
+            raise HTTPException(status_code=502, detail="Unexpected response")
+        data = res.json()
+        items: list[InboundItem] = []
+        if isinstance(data, list):
+            for it in data:
+                iid = str(it.get("id") or it.get("_id") or it.get("tag") or it.get("remark") or "")
+                items.append(InboundItem(id=iid, tag=it.get("tag"), remark=it.get("remark")))
+        elif isinstance(data, dict) and isinstance(data.get("items"), list):
+            for it in data["items"]:
+                iid = str(it.get("id") or it.get("_id") or it.get("tag") or it.get("remark") or "")
+                items.append(InboundItem(id=iid, tag=it.get("tag"), remark=it.get("remark")))
+        return PanelInboundsResponse(items=items)
+
+
+class PanelInboundSelectRequest(BaseModel):
+    inbound_id: str
+    inbound_tag: Optional[str] = None
+
+
+@router.post("/panels/{panel_id}/inbound", response_model=PanelRead)
+def set_inbound(panel_id: int, payload: PanelInboundSelectRequest, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    panel.inbound_id = payload.inbound_id
+    panel.inbound_tag = payload.inbound_tag
+    db.add(panel)
+    db.commit()
+    db.refresh(panel)
+    return panel
+
+
 class PanelUserCreateRequest(BaseModel):
     name: str
     volume_gb: float
@@ -217,6 +274,9 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
+    # Require inbound selection to avoid invalid subscription links
+    if not (panel.inbound_id or panel.inbound_tag):
+        raise HTTPException(status_code=400, detail="Panel inbound not set. Please select an inbound for this panel first.")
     token = await _login_get_token(panel.base_url, panel.username, panel.password)
     if not token:
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
@@ -236,6 +296,11 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         for path in paths:
             url = panel.base_url.rstrip("/") + path
             for body in payloads:
+                # Attach inbound if available
+                if panel.inbound_id:
+                    body = {**body, "inbound_id": panel.inbound_id}
+                if panel.inbound_tag and "inbound_tag" not in body:
+                    body = {**body, "inbound_tag": panel.inbound_tag}
                 try:
                     res = await client.post(url, json=body, headers=headers)
                 except Exception as e:

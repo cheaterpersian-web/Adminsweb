@@ -6,12 +6,16 @@ import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 
 type Panel = { id: number; name: string; base_url: string; username: string };
+type InboundItem = { id: string; tag?: string; remark?: string };
 
 export default function PanelsPage() {
   const [panels, setPanels] = useState<Panel[]>([]);
   const [form, setForm] = useState({ name: "", base_url: "", username: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [testMsg, setTestMsg] = useState<string | null>(null);
+  const [inbounds, setInbounds] = useState<InboundItem[] | null>(null);
+  const [selectedPanelId, setSelectedPanelId] = useState<string>("");
+  const [selectedInbound, setSelectedInbound] = useState<string>("");
 
   const load = async () => {
     try {
@@ -44,6 +48,27 @@ export default function PanelsPage() {
       }
     } catch (e:any) {
       setTestMsg(e.message || "خطا در اتصال");
+    } finally { setBusy(false); }
+  };
+
+  const loadInbounds = async (panelId: number) => {
+    setInbounds(null);
+    try {
+      const res = await apiFetch(`/panels/${panelId}/inbounds`);
+      setInbounds(res.items || []);
+    } catch { setInbounds([]); }
+  };
+
+  const saveInbound = async () => {
+    if (!selectedPanelId || !selectedInbound) return;
+    setBusy(true);
+    try {
+      const pid = parseInt(selectedPanelId, 10);
+      const item = (inbounds || []).find(x => x.id === selectedInbound);
+      await apiFetch(`/panels/${pid}/inbound`, { method: "POST", body: JSON.stringify({ inbound_id: selectedInbound, inbound_tag: item?.tag || null }) });
+      setTestMsg("این‌باند ذخیره شد");
+    } catch (e:any) {
+      setTestMsg(e.message || "خطا در ذخیره این‌باند");
     } finally { setBusy(false); }
   };
 
@@ -82,6 +107,35 @@ export default function PanelsPage() {
             </div>
             {testMsg && <div className="col-span-full text-sm text-muted-foreground">{testMsg}</div>}
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>انتخاب این‌باند برای هر پنل</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+            <div className="space-y-1">
+              <label className="text-sm">پنل</label>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedPanelId} onChange={e=>{ setSelectedPanelId(e.target.value); const v = parseInt(e.target.value,10); if (v) loadInbounds(v); }}>
+                <option value="">انتخاب پنل</option>
+                {panels.map(p=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">این‌باند</label>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedInbound} onChange={e=>setSelectedInbound(e.target.value)} disabled={!inbounds}>
+                <option value="">انتخاب این‌باند</option>
+                {(inbounds||[]).map(i=> (
+                  <option key={i.id} value={i.id}>{i.tag || i.remark || i.id}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-span-full">
+              <Button onClick={saveInbound} disabled={!selectedPanelId || !selectedInbound || busy}>ذخیره این‌باند</Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
