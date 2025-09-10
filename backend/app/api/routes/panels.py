@@ -89,36 +89,36 @@ class PanelTestResponse(BaseModel):
 
 
 async def _try_login(base_url: str, username: str, password: str) -> tuple[bool, Optional[str], Optional[int], Optional[str]]:
-    # Try common Marzban admin login endpoints
-    candidates = [
-        {"path": "/api/admin/token", "method": "form"},
-        {"path": "/api/admin/login", "method": "json"},
-        {"path": "/api/login", "method": "json"},
-        {"path": "/api/auth/login", "method": "json"},
-    ]
+    # Use official Marzban endpoint first
     async with httpx.AsyncClient(timeout=10.0, verify=False) as client:  # verify=False to allow self-signed during tests
-        for c in candidates:
-            url = base_url.rstrip("/") + c["path"]
+        url = base_url.rstrip("/") + "/api/admin/token"
+        last_error = None
+        for method in ("form", "json"):
             try:
-                if c["method"] == "form":
+                if method == "form":
                     res = await client.post(url, data={"username": username, "password": password})
                 else:
                     res = await client.post(url, json={"username": username, "password": password})
             except Exception as e:
                 last_error = str(e)
                 continue
-            if res.status_code < 500 and res.headers.get("content-type", "").startswith("application/json"):
+            if res.headers.get("content-type", "").startswith("application/json"):
                 try:
                     data = res.json()
                 except Exception:
                     data = {}
-                token = data.get("access_token") or data.get("token") or data.get("jwt")
+                token = data.get("access_token") or data.get("token")
                 if token:
-                    return True, c["path"], res.status_code, token[:12] + "..."
-                # if 401/403 but JSON, consider auth failure but endpoint exists
+                    # Optionally verify the token by calling GET /api/admin
+                    try:
+                        chk = await client.get(base_url.rstrip("/") + "/api/admin", headers={"Authorization": f"Bearer {token}"})
+                        if chk.status_code in (200, 204):
+                            return True, "/api/admin/token", res.status_code, token[:12] + "..."
+                    except Exception:
+                        pass
+                    return True, "/api/admin/token", res.status_code, token[:12] + "..."
                 if res.status_code in (401, 403):
-                    return False, c["path"], res.status_code, "Unauthorized"
-            # try reachability via docs if login not matched
+                    return False, "/api/admin/token", res.status_code, "Unauthorized"
         # fallback: reachability
         try:
             res = await client.get(base_url.rstrip("/") + "/docs")
@@ -126,7 +126,7 @@ async def _try_login(base_url: str, username: str, password: str) -> tuple[bool,
                 return False, "/docs", 200, "Reachable, but login failed"
         except Exception as e:
             last_error = str(e)
-    return False, None, None, locals().get("last_error", None)
+    return False, None, None, last_error
 
 
 @router.post("/panels/test", response_model=PanelTestResponse)
@@ -152,28 +152,22 @@ class PanelUserCreateResponse(BaseModel):
 
 
 async def _login_get_token(base_url: str, username: str, password: str) -> Optional[str]:
-    candidates = [
-        {"path": "/api/admin/token", "method": "form"},
-        {"path": "/api/admin/login", "method": "json"},
-        {"path": "/api/login", "method": "json"},
-        {"path": "/api/auth/login", "method": "json"},
-    ]
     async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
-        for c in candidates:
-            url = base_url.rstrip("/") + c["path"]
+        url = base_url.rstrip("/") + "/api/admin/token"
+        for method in ("form", "json"):
             try:
-                if c["method"] == "form":
+                if method == "form":
                     res = await client.post(url, data={"username": username, "password": password})
                 else:
                     res = await client.post(url, json={"username": username, "password": password})
             except Exception:
                 continue
-            if res.status_code < 500 and res.headers.get("content-type", "").startswith("application/json"):
+            if res.headers.get("content-type", "").startswith("application/json"):
                 try:
                     data = res.json()
                 except Exception:
                     data = {}
-                token = data.get("access_token") or data.get("token") or data.get("jwt")
+                token = data.get("access_token") or data.get("token")
                 if token:
                     return token
     return None
@@ -230,11 +224,10 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     bytes_limit = int(max(0, payload.volume_gb) * (1024 ** 3))
     expire_at = datetime.now(tz=timezone.utc) + timedelta(days=max(1, payload.duration_days))
     payloads = _build_payload_variants(payload.name, bytes_limit, expire_at)
+    # Use official endpoint first
     paths = [
-        "/api/admin/users",
-        "/api/admin/user",
-        "/api/users",
         "/api/user",
+        "/api/users",
     ]
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
@@ -256,7 +249,17 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 else:
                     data = {"raw_text": await res.aread()}
                 if 200 <= res.status_code < 300:
+                    # Try to get sub URL from response
                     sub_url = await _extract_subscription_url(panel.base_url, data)
+                    if not sub_url:
+                        # Fetch user info to get subscription
+                        try:
+                            info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.name}", headers=headers)
+                            if info.headers.get("content-type", "").startswith("application/json"):
+                                udata = info.json()
+                                sub_url = await _extract_subscription_url(panel.base_url, udata)
+                        except Exception:
+                            pass
                     return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
                 else:
                     last_err = f"{res.status_code} {res.text[:200]}"
