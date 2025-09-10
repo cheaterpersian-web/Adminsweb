@@ -14,11 +14,23 @@ export default function LoginPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(process.env.NEXT_PUBLIC_API_BASE_URL + "/auth/login", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api";
+      const res = await fetch(apiUrl + "/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+      
+      // Check if response is JSON
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await res.text();
+        if (text.includes("<!DOCTYPE") || text.includes("<html")) {
+          throw new Error("سرور در دسترس نیست. لطفاً مطمئن شوید که سرویس backend در حال اجرا است.");
+        }
+        throw new Error(`خطا در ارتباط با سرور: ${res.status} ${res.statusText}`);
+      }
+      
       const data = await res.json();
       if (!res.ok) {
         const message = (data && (data.detail || data.message)) || `خطا: ${res.status}`;
@@ -28,7 +40,7 @@ export default function LoginPage() {
       localStorage.setItem("refresh_token", data.refresh_token);
       window.location.href = "/dashboard";
     } catch (err: any) {
-      setError(err.message || "Login failed");
+      setError(err.message || "ورود ناموفق");
     } finally {
       setLoading(false);
     }
