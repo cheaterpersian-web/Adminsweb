@@ -245,6 +245,19 @@ def set_inbound(panel_id: int, payload: PanelInboundSelectRequest, db: Session =
     return panel
 
 
+class PanelSelectedInboundsResponse(BaseModel):
+    inbound_ids: list[str]
+
+
+@router.get("/panels/{panel_id}/inbound", response_model=PanelSelectedInboundsResponse)
+def get_selected_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    rows = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).order_by(PanelInbound.id.asc()).all()
+    return PanelSelectedInboundsResponse(inbound_ids=[r.inbound_id for r in rows])
+
+
 class PanelUserCreateRequest(BaseModel):
     name: str
     volume_gb: float
@@ -346,15 +359,21 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         last_err = None
         for path in paths:
             url = panel.base_url.rstrip("/") + path
-            # Load selected inbounds (use first for create)
+            # Load selected inbounds; prefer sending all as array if supported
             sel = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).order_by(PanelInbound.id.asc()).all()
-            selected_first = sel[0].inbound_id if sel else None
+            selected_ids = [r.inbound_id for r in sel]
             for body in payloads:
-                # Attach inbound
-                if selected_first:
-                    body = {**body, "inbound_id": selected_first}
+                # Try multiple shapes: array and single
+                bodies = []
+                if selected_ids:
+                    bodies.append({**body, "inbounds": selected_ids})
+                    bodies.append({**body, "inbound_ids": selected_ids})
+                    bodies.append({**body, "inbound_id": selected_ids[0]})
+                else:
+                    bodies.append(body)
+                for b in bodies:
                 try:
-                    res = await client.post(url, json=body, headers=headers)
+                    res = await client.post(url, json=b, headers=headers)
                 except Exception as e:
                     last_err = str(e)
                     continue

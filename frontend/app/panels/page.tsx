@@ -62,6 +62,17 @@ export default function PanelsPage() {
     try {
       const res = await apiFetch(`/panels/${panelId}/inbounds`);
       setInbounds(res.items || []);
+      // Load selected ones
+      try {
+        const sel = await apiFetch(`/panels/${panelId}/inbound`);
+        const ids: string[] = sel.inbound_ids || [];
+        // check corresponding checkboxes
+        setTimeout(() => {
+          document.querySelectorAll<HTMLInputElement>("input[name=panel-inbound]").forEach(el => {
+            el.checked = ids.includes(el.value);
+          });
+        }, 0);
+      } catch {}
     } catch { setInbounds([]); }
   };
 
