@@ -344,68 +344,78 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     if not token:
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
 
+    # Build body according to Marzban Add User spec: use inbounds as { protocol: [tags] }
     bytes_limit = int(max(0, payload.volume_gb) * (1024 ** 3))
     expire_at = datetime.now(tz=timezone.utc) + timedelta(days=max(1, payload.duration_days))
-    payloads = _build_payload_variants(payload.name, bytes_limit, expire_at)
-    # Use official endpoint first
-    paths = [
-        "/api/user",
-        "/api/users",
-    ]
+    expire_ts = int(expire_at.timestamp())
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
-        last_err = None
-        for path in paths:
-            url = panel.base_url.rstrip("/") + path
-            # Load selected inbounds; prefer sending all as array if supported
-            sel = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).order_by(PanelInbound.id.asc()).all()
-            selected_ids = [r.inbound_id for r in sel]
-            for body in payloads:
-                # Try multiple shapes: array and single
-                bodies = []
-                if selected_ids:
-                    # Arrays
-                    bodies.append({**body, "inbounds": selected_ids})
-                    bodies.append({**body, "inbound_ids": selected_ids})
-                    bodies.append({**body, "inbound_tags": selected_ids})
-                    bodies.append({**body, "tags": selected_ids})
-                    bodies.append({**body, "inbounds": [{"tag": t} for t in selected_ids]})
-                    # Single
-                    bodies.append({**body, "inbound_id": selected_ids[0]})
-                    bodies.append({**body, "inbound": selected_ids[0]})
-                    bodies.append({**body, "inbound_tag": selected_ids[0]})
-                else:
-                    bodies.append(body)
-                for b in bodies:
-                    try:
-                        res = await client.post(url, json=b, headers=headers)
-                    except Exception as e:
-                        last_err = str(e)
-                        continue
-                    if res.headers.get("content-type", "").startswith("application/json"):
-                        try:
-                            data = res.json()
-                        except Exception:
-                            data = {}
-                    else:
-                        data = {"raw_text": await res.aread()}
-                    if 200 <= res.status_code < 300:
-                        # Try to get sub URL from response
-                        sub_url = await _extract_subscription_url(panel.base_url, data)
-                        if not sub_url:
-                            # Fetch user info to get subscription
-                            try:
-                                info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.name}", headers=headers)
-                                if info.headers.get("content-type", "").startswith("application/json"):
-                                    udata = info.json()
-                                    sub_url = await _extract_subscription_url(panel.base_url, udata)
-                            except Exception:
-                                pass
-                        return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
-                    else:
-                        last_err = f"{res.status_code} {res.text[:200]}"
-        return PanelUserCreateResponse(ok=False, error=last_err)
+        # Fetch panel inbounds to determine protocol for selected tags
+        try:
+            resp_inb = await client.get(panel.base_url.rstrip("/") + "/api/inbounds", headers=headers)
+            resp_inb.raise_for_status()
+            inb_data = resp_inb.json()
+        except Exception as e:
+            return PanelUserCreateResponse(ok=False, error=f"Failed to fetch inbounds: {e}")
+
+        normalized: list[dict] = []
+        if isinstance(inb_data, list):
+            normalized = [x for x in inb_data if isinstance(x, dict)]
+        elif isinstance(inb_data, dict):
+            if isinstance(inb_data.get("items"), list):
+                normalized = [x for x in inb_data["items"] if isinstance(x, dict)]
+            else:
+                for v in inb_data.values():
+                    if isinstance(v, list):
+                        normalized.extend([x for x in v if isinstance(x, dict)])
+
+        selected_rows = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).all()
+        selected_tags = {r.inbound_id for r in selected_rows}
+        proto_to_tags: dict[str, list[str]] = {}
+        for it in normalized:
+            tag = str(it.get("tag") or "").strip()
+            proto = str(it.get("protocol") or "").strip()
+            if tag and proto and tag in selected_tags:
+                proto_to_tags.setdefault(proto, []).append(tag)
+
+        body = {
+            "username": payload.name,
+            "status": "active",
+            "expire": expire_ts,
+            "data_limit": bytes_limit,
+            "data_limit_reset_strategy": "no_reset",
+            "proxies": {},
+            "inbounds": proto_to_tags,
+        }
+
+        url = panel.base_url.rstrip("/") + "/api/user"
+        try:
+            res = await client.post(url, json=body, headers=headers)
+        except Exception as e:
+            return PanelUserCreateResponse(ok=False, error=str(e))
+
+        if res.headers.get("content-type", "").startswith("application/json"):
+            try:
+                data = res.json()
+            except Exception:
+                data = {}
+        else:
+            data = {"raw_text": await res.aread()}
+
+        if 200 <= res.status_code < 300:
+            sub_url = await _extract_subscription_url(panel.base_url, data)
+            if not sub_url:
+                try:
+                    info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.name}", headers=headers)
+                    if info.headers.get("content-type", "").startswith("application/json"):
+                        udata = info.json()
+                        sub_url = await _extract_subscription_url(panel.base_url, udata)
+                except Exception:
+                    pass
+            return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
+        else:
+            return PanelUserCreateResponse(ok=False, error=f"{res.status_code} {res.text[:400]}")
 
 
 class PanelUserDeleteRequest(BaseModel):
