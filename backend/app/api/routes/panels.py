@@ -176,6 +176,40 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
         return PanelInboundsResponse(items=items)
 
 
+class HostItem(BaseModel):
+    host: str
+
+
+class PanelHostsResponse(BaseModel):
+    items: list[HostItem]
+
+
+@router.get("/panels/{panel_id}/hosts", response_model=PanelHostsResponse)
+async def list_hosts(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}"}
+    url = panel.base_url.rstrip("/") + "/api/hosts"
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        res = await client.get(url, headers=headers)
+        if not res.headers.get("content-type", "").startswith("application/json"):
+            raise HTTPException(status_code=502, detail="Unexpected response")
+        data = res.json()
+        items: list[HostItem] = []
+        if isinstance(data, list):
+            items = [HostItem(host=str(h)) for h in data]
+        elif isinstance(data, dict):
+            for key in ("hosts", "items", "domains"):
+                if isinstance(data.get(key), list):
+                    items = [HostItem(host=str(h)) for h in data[key]]
+                    break
+        return PanelHostsResponse(items=items)
+
+
 class PanelInboundSelectRequest(BaseModel):
     inbound_id: str
     inbound_tag: Optional[str] = None

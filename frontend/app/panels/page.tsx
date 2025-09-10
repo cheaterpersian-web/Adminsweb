@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 
 type Panel = { id: number; name: string; base_url: string; username: string };
 type InboundItem = { id: string; tag?: string; remark?: string };
+type HostItem = { host: string };
 
 export default function PanelsPage() {
   const [panels, setPanels] = useState<Panel[]>([]);
@@ -16,6 +17,8 @@ export default function PanelsPage() {
   const [inbounds, setInbounds] = useState<InboundItem[] | null>(null);
   const [selectedPanelId, setSelectedPanelId] = useState<string>("");
   const [selectedInbound, setSelectedInbound] = useState<string>("");
+  const [hosts, setHosts] = useState<HostItem[] | null>(null);
+  const [selectedHost, setSelectedHost] = useState<string>("");
 
   const load = async () => {
     try {
@@ -61,6 +64,26 @@ export default function PanelsPage() {
       const res = await apiFetch(`/panels/${panelId}/inbounds`);
       setInbounds(res.items || []);
     } catch { setInbounds([]); }
+  };
+
+  const loadHosts = async (panelId: number) => {
+    setHosts(null);
+    try {
+      const res = await apiFetch(`/panels/${panelId}/hosts`);
+      setHosts(res.items || []);
+    } catch { setHosts([]); }
+  };
+
+  const refreshLists = async () => {
+    const pid = parseInt(selectedPanelId, 10);
+    if (!pid) return;
+    setBusy(true);
+    try {
+      await Promise.all([loadInbounds(pid), loadHosts(pid)]);
+      setTestMsg("لیست‌ها بروزرسانی شد");
+    } catch (e:any) {
+      setTestMsg(e.message || "خطا در بروزرسانی");
+    } finally { setBusy(false); }
   };
 
   const saveInbound = async () => {
@@ -122,7 +145,7 @@ export default function PanelsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div className="space-y-1">
               <label className="text-sm">پنل</label>
-              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedPanelId} onChange={e=>{ setSelectedPanelId(e.target.value); const v = parseInt(e.target.value,10); if (v) loadInbounds(v); }}>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedPanelId} onChange={e=>{ setSelectedPanelId(e.target.value); const v = parseInt(e.target.value,10); if (v) { loadInbounds(v); loadHosts(v); } }}>
                 <option value="">انتخاب پنل</option>
                 {panels.map(p=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
               </select>
@@ -136,8 +159,20 @@ export default function PanelsPage() {
                 ))}
               </select>
             </div>
+            <div className="space-y-1">
+              <label className="text-sm">هاست</label>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedHost} onChange={e=>setSelectedHost(e.target.value)} disabled={!hosts}>
+                <option value="">انتخاب هاست</option>
+                {(hosts||[]).map(h=> (
+                  <option key={h.host} value={h.host}>{h.host}</option>
+                ))}
+              </select>
+            </div>
             <div className="col-span-full">
-              <Button onClick={saveInbound} disabled={!selectedPanelId || !selectedInbound || busy}>ذخیره این‌باند</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={refreshLists} disabled={!selectedPanelId || busy}>بروزرسانی لیست‌ها</Button>
+                <Button onClick={saveInbound} disabled={!selectedPanelId || !selectedInbound || busy}>ذخیره این‌باند</Button>
+              </div>
             </div>
           </div>
         </CardContent>
