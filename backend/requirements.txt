@@ -16,3 +16,4 @@ psutil==6.0.0
 slowapi==0.1.7
 orjson==3.10.7
 email-validator==2.2.0
+httpx==0.27.0

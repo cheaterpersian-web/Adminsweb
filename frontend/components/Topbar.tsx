@@ -23,7 +23,7 @@ export default function Topbar() {
             <Link href="/users" className="hover:text-foreground">Users</Link>
             <Link href="/configs" className="hover:text-foreground">Configs</Link>
             <Link href="/audit" className="hover:text-foreground">Audit</Link>
-            <Link href="/nodes" className="hover:text-foreground">Nodes</Link>
+            <Link href="/panels" className="hover:text-foreground">Panels</Link>
           </nav>
         </div>
         <div className="flex items-center gap-2">
