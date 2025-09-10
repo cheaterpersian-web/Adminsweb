@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from fastapi import status
 
@@ -15,7 +15,7 @@ router = APIRouter()
 
 @router.post("/auth/login", response_model=TokenPair)
 @limiter.limit("10/minute")
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password) or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -30,7 +30,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/auth/refresh", response_model=TokenPair)
 @limiter.limit("30/minute")
-def refresh_token(refresh_token: str):
+def refresh_token(request: Request, refresh_token: str):
     # For simplicity, we trust the provided refresh token and issue a new access token if valid
     from jose import jwt, JWTError
     from app.core.config import get_settings
