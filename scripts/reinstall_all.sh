@@ -15,13 +15,14 @@ NO_CACHE="true"
 PULL_LATEST="true"
 BUILD_ONLY="false"
 WAIT_TIMEOUT="120"
+WIPE_VOLUMES="false"
 
 usage() {
   cat <<EOF
 ${SCRIPT_NAME} - Reinstall (clean, rebuild, and start) the entire project via docker compose.
 
 Usage:
-  ${SCRIPT_NAME} [--project NAME] [--registry URL] [--no-cache=false] [--pull=false] [--build-only] [--timeout SEC]
+  ${SCRIPT_NAME} [--project NAME] [--registry URL] [--no-cache=false] [--pull=false] [--build-only] [--timeout SEC] [--wipe-volumes]
 
 Options:
   --project NAME  Compose project name (default: ${PROJECT_NAME})
@@ -30,6 +31,7 @@ Options:
   --pull BOOL     Always attempt to pull base images (default: ${PULL_LATEST})
   --build-only    Only build images, do not start containers
   --timeout SEC   Wait timeout for health checks (default: ${WAIT_TIMEOUT})
+  --wipe-volumes  Also remove named volumes (data wipe). Default: preserve data
   -h, --help      Show this help and exit
 EOF
 }
@@ -114,6 +116,8 @@ while [[ $# -gt 0 ]]; do
       BUILD_ONLY="true" ;;
     --timeout)
       shift; WAIT_TIMEOUT="${1:-120}" ;;
+    --wipe-volumes)
+      WIPE_VOLUMES="true" ;;
     -h|--help)
       usage; exit 0 ;;
     *)
@@ -127,8 +131,12 @@ require_cmd docker
 require_cmd curl
 [[ -f "$COMPOSE_FILE_PATH" ]] || fail "Compose file not found: $COMPOSE_FILE_PATH"
 
-log "Bringing down existing stack and removing named volumes"
-compose down -v --remove-orphans || true
+log "Bringing down existing stack (preserving volumes by default)"
+if [[ "$WIPE_VOLUMES" == "true" ]]; then
+  compose down -v --remove-orphans || true
+else
+  compose down --remove-orphans || true
+fi
 
 log "Pruning builder cache and dangling images (safe)"
 docker builder prune -af >/dev/null 2>&1 || true

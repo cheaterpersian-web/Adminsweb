@@ -11,18 +11,20 @@ COMPOSE_FILE_PATH="${ROOT_DIR}/docker-compose.yml"
 PROJECT_NAME="marzban"
 NPM_REGISTRY="https://registry.npmjs.org/"
 WAIT_TIMEOUT="150"
+WIPE_VOLUMES="false"
 
 usage() {
   cat <<EOF
 ${SCRIPT_NAME} - Hard clean previous containers/images/volumes and reinstall from source.
 
 Usage:
-  ${SCRIPT_NAME} [--project NAME] [--registry URL] [--timeout SEC]
+  ${SCRIPT_NAME} [--project NAME] [--registry URL] [--timeout SEC] [--wipe-volumes]
 
 Options:
   --project NAME  Compose project name (default: ${PROJECT_NAME})
   --registry URL  npm registry used during frontend build (default: ${NPM_REGISTRY})
   --timeout SEC   Wait timeout for health checks (default: ${WAIT_TIMEOUT})
+  --wipe-volumes  Also remove named volumes (data wipe). Default: preserve data
   -h, --help      Show this help and exit
 EOF
 }
@@ -63,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --project) shift; PROJECT_NAME="${1:-}"; [[ -n "$PROJECT_NAME" ]] || fail "--project requires a value" ;;
     --registry) shift; NPM_REGISTRY="${1:-}"; [[ -n "$NPM_REGISTRY" ]] || fail "--registry requires a value" ;;
     --timeout) shift; WAIT_TIMEOUT="${1:-150}" ;;
+    --wipe-volumes) WIPE_VOLUMES="true" ;;
     -h|--help) usage; exit 0 ;;
     *) fail "Unknown argument: $1" ;;
   esac
@@ -74,8 +77,8 @@ require_cmd docker
 require_cmd curl
 [[ -f "$COMPOSE_FILE_PATH" ]] || fail "Compose file not found: $COMPOSE_FILE_PATH"
 
-log "Stopping any running stack (remove orphans & volumes)"
-compose down -v --remove-orphans || true
+log "Stopping any running stack (remove orphans)"
+compose down --remove-orphans || true
 
 log "Killing stray containers with project label (best-effort)"
 docker ps -a --filter "label=com.docker.compose.project=${PROJECT_NAME}" -q | xargs -r docker rm -f || true
@@ -89,8 +92,12 @@ docker image prune -af >/dev/null 2>&1 || true
 docker container prune -f >/dev/null 2>&1 || true
 docker network prune -f >/dev/null 2>&1 || true
 
-log "Removing named volumes used by compose (data wipe)"
-docker volume rm $(docker volume ls -q | grep -E "(pgdata|redisdata|backend-data|dbbackups)" || true) >/dev/null 2>&1 || true
+if [[ "$WIPE_VOLUMES" == "true" ]]; then
+  log "Removing named volumes used by compose (data wipe)"
+  docker volume rm $(docker volume ls -q | grep -E "(pgdata|redisdata|backend-data|dbbackups)" || true) >/dev/null 2>&1 || true
+else
+  log "Preserving named volumes (data kept)"
+fi
 
 log "Building from fresh source with no cache"
 compose build --no-cache --pull --build-arg NPM_REGISTRY="$NPM_REGISTRY"
