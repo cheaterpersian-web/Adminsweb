@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "../../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -48,19 +49,30 @@ export default function LoginPage() {
 
   return (
     <main className="min-h-screen flex items-center justify-center p-6">
-      <form onSubmit={submit} className="w-full max-w-sm space-y-4 border rounded-lg p-6">
-        <h1 className="text-2xl font-semibold">ورود ادمین</h1>
-        <div className="space-y-2">
-          <label className="block text-sm">ایمیل</label>
-          <input className="w-full h-10 px-3 rounded-md border bg-background" value={email} onChange={e => setEmail(e.target.value)} required />
-        </div>
-        <div className="space-y-2">
-          <label className="block text-sm">رمز عبور</label>
-          <input type="password" className="w-full h-10 px-3 rounded-md border bg-background" value={password} onChange={e => setPassword(e.target.value)} required />
-        </div>
-        {error && <p className="text-red-600 text-sm">{error}</p>}
-        <Button type="submit" disabled={loading} className="w-full">{loading ? "در حال ورود..." : "ورود"}</Button>
-      </form>
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>ورود ادمین</CardTitle>
+          <CardDescription>با ایمیل و رمز عبور خود وارد شوید</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className="space-y-4">
+            <div className="space-y-2">
+              <label className="block text-sm">ایمیل</label>
+              <input className="w-full h-10 px-3 rounded-md border bg-background" value={email} onChange={e => setEmail(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm">رمز عبور</label>
+              <input type="password" className="w-full h-10 px-3 rounded-md border bg-background" value={password} onChange={e => setPassword(e.target.value)} required />
+            </div>
+            {error && (
+              <div className="text-sm bg-red-500/10 text-red-600 border border-red-500/30 rounded-md p-2">
+                {error}
+              </div>
+            )}
+            <Button type="submit" disabled={loading} className="w-full">{loading ? "در حال ورود..." : "ورود"}</Button>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }
