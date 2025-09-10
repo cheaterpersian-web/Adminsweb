@@ -18,7 +18,6 @@ export default function PanelsPage() {
   const [selectedPanelId, setSelectedPanelId] = useState<string>("");
   const [selectedInbound, setSelectedInbound] = useState<string>("");
   const [hosts, setHosts] = useState<HostItem[] | null>(null);
-  const [selectedHost, setSelectedHost] = useState<string>("");
 
   const load = async () => {
     try {
@@ -87,12 +86,12 @@ export default function PanelsPage() {
   };
 
   const saveInbound = async () => {
-    if (!selectedPanelId || !selectedInbound) return;
+    if (!selectedPanelId) return;
     setBusy(true);
     try {
       const pid = parseInt(selectedPanelId, 10);
-      const item = (inbounds || []).find(x => x.id === selectedInbound);
-      await apiFetch(`/panels/${pid}/inbound`, { method: "POST", body: JSON.stringify({ inbound_id: selectedInbound, inbound_tag: item?.tag || null }) });
+      const selectedIds = Array.from(document.querySelectorAll<HTMLInputElement>("input[name=panel-inbound]:checked")).map(el => el.value);
+      await apiFetch(`/panels/${pid}/inbound`, { method: "POST", body: JSON.stringify({ inbound_ids: selectedIds }) });
       setTestMsg("این‌باند ذخیره شد");
     } catch (e:any) {
       setTestMsg(e.message || "خطا در ذخیره این‌باند");
@@ -150,28 +149,22 @@ export default function PanelsPage() {
                 {panels.map(p=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="text-sm">این‌باند</label>
-              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedInbound} onChange={e=>setSelectedInbound(e.target.value)} disabled={!inbounds}>
-                <option value="">انتخاب این‌باند</option>
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-sm">انتخاب این‌باندها (چندتایی)</label>
+              <div className="border rounded-md p-2 max-h-64 overflow-auto">
                 {(inbounds||[]).map(i=> (
-                  <option key={i.id} value={i.id}>{i.tag || i.remark || i.id}</option>
+                  <label key={i.id} className="flex items-center gap-2 py-1">
+                    <input type="checkbox" name="panel-inbound" value={i.id} />
+                    <span className="text-sm">{i.tag || i.remark || i.id}</span>
+                  </label>
                 ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm">هاست</label>
-              <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedHost} onChange={e=>setSelectedHost(e.target.value)} disabled={!hosts}>
-                <option value="">انتخاب هاست</option>
-                {(hosts||[]).map(h=> (
-                  <option key={h.host} value={h.host}>{h.host}</option>
-                ))}
-              </select>
+                {(!inbounds || inbounds.length===0) && <div className="text-sm text-muted-foreground">لیست خالی است</div>}
+              </div>
             </div>
             <div className="col-span-full">
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" onClick={refreshLists} disabled={!selectedPanelId || busy}>بروزرسانی لیست‌ها</Button>
-                <Button onClick={saveInbound} disabled={!selectedPanelId || !selectedInbound || busy}>ذخیره این‌باند</Button>
+                <Button onClick={saveInbound} disabled={!selectedPanelId || busy}>ذخیره این‌باندها</Button>
               </div>
             </div>
           </div>

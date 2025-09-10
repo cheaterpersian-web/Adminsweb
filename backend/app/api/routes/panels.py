@@ -7,6 +7,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.models.panel import Panel
 from app.core.auth import require_roles
+from app.models.panel_inbound import PanelInbound
 from pydantic import BaseModel, AnyHttpUrl
 from datetime import datetime, timedelta, timezone
 
@@ -225,8 +226,7 @@ async def list_hosts(panel_id: int, db: Session = Depends(get_db), _: User = Dep
 
 
 class PanelInboundSelectRequest(BaseModel):
-    inbound_id: str
-    inbound_tag: Optional[str] = None
+    inbound_ids: list[str]
 
 
 @router.post("/panels/{panel_id}/inbound", response_model=PanelRead)
@@ -234,9 +234,12 @@ def set_inbound(panel_id: int, payload: PanelInboundSelectRequest, db: Session =
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
-    panel.inbound_id = payload.inbound_id
-    panel.inbound_tag = payload.inbound_tag
-    db.add(panel)
+    # Clear previous selections
+    db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).delete()
+    # Insert selected inbounds
+    for iid in payload.inbound_ids:
+        pi = PanelInbound(panel_id=panel_id, inbound_id=iid, inbound_tag=None)
+        db.add(pi)
     db.commit()
     db.refresh(panel)
     return panel
@@ -343,12 +346,13 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         last_err = None
         for path in paths:
             url = panel.base_url.rstrip("/") + path
+            # Load selected inbounds (use first for create)
+            sel = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).order_by(PanelInbound.id.asc()).all()
+            selected_first = sel[0].inbound_id if sel else None
             for body in payloads:
-                # Attach inbound if available
-                if panel.inbound_id:
-                    body = {**body, "inbound_id": panel.inbound_id}
-                if panel.inbound_tag and "inbound_tag" not in body:
-                    body = {**body, "inbound_tag": panel.inbound_tag}
+                # Attach inbound
+                if selected_first:
+                    body = {**body, "inbound_id": selected_first}
                 try:
                     res = await client.post(url, json=body, headers=headers)
                 except Exception as e:
