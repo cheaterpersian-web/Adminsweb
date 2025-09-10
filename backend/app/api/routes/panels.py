@@ -379,13 +379,16 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             if tag and proto and tag in selected_tags:
                 proto_to_tags.setdefault(proto, []).append(tag)
 
+        # Proxies object based on selected protocols
+        proxies_obj = {proto: {} for proto in proto_to_tags.keys()}
+
         body = {
             "username": payload.name,
             "status": "active",
             "expire": expire_ts,
             "data_limit": bytes_limit,
             "data_limit_reset_strategy": "no_reset",
-            "proxies": {},
+            "proxies": proxies_obj,
             "inbounds": proto_to_tags,
         }
 
