@@ -19,10 +19,11 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) {
-        throw new Error("Invalid credentials");
-      }
       const data = await res.json();
+      if (!res.ok) {
+        const message = (data && (data.detail || data.message)) || `خطا: ${res.status}`;
+        throw new Error(message);
+      }
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("refresh_token", data.refresh_token);
       window.location.href = "/dashboard";

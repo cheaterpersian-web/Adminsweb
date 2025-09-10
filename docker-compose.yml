@@ -30,6 +30,8 @@ services:
       SECRET_KEY: change-me
       CORS_ORIGINS: http://localhost:3000
       API_PREFIX: /api
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: admin123
     depends_on:
       - postgres
       - redis
