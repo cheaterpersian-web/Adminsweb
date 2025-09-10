@@ -7,6 +7,7 @@ export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "operator" });
   const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState<number | null>(null);
 
   const load = async () => {
     try {
@@ -24,6 +25,22 @@ export default function UsersPage() {
       setForm({ name: "", email: "", password: "", role: "operator" });
       load();
     } finally { setLoading(false); }
+  };
+
+  const updateUser = async (id: number, updates: any) => {
+    setSavingId(id);
+    try {
+      await apiFetch(`/users/${id}`, { method: "PUT", body: JSON.stringify(updates) });
+      load();
+    } finally { setSavingId(null); }
+  };
+
+  const toggleActive = async (id: number, isActive: boolean) => {
+    setSavingId(id);
+    try {
+      await apiFetch(`/users/${id}/${isActive ? "disable" : "enable"}`, { method: "POST" });
+      load();
+    } finally { setSavingId(null); }
   };
 
   return (
@@ -49,16 +66,30 @@ export default function UsersPage() {
               <th className="p-2 text-left">Email</th>
               <th className="p-2 text-left">Role</th>
               <th className="p-2 text-left">Active</th>
+              <th className="p-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map(u=> (
               <tr key={u.id} className="border-t">
                 <td className="p-2">{u.id}</td>
-                <td className="p-2">{u.name}</td>
+                <td className="p-2">
+                  <input className="border rounded-md h-9 px-2" defaultValue={u.name} onBlur={e=>updateUser(u.id, { name: e.target.value })} />
+                </td>
                 <td className="p-2">{u.email}</td>
-                <td className="p-2">{u.role}</td>
+                <td className="p-2">
+                  <select className="border rounded-md h-9 px-2" defaultValue={u.role} onChange={e=>updateUser(u.id, { role: e.target.value })}>
+                    <option value="admin">admin</option>
+                    <option value="operator">operator</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                </td>
                 <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
+                <td className="p-2">
+                  <Button variant="outline" size="sm" disabled={savingId===u.id} onClick={()=>toggleActive(u.id, u.is_active)}>
+                    {u.is_active ? "Disable" : "Enable"}
+                  </Button>
+                </td>
               </tr>
             ))}
           </tbody>
