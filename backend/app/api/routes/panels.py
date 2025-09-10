@@ -339,8 +339,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
     # Require inbound selection to avoid invalid subscription links
-    if not (panel.inbound_id or panel.inbound_tag):
-        raise HTTPException(status_code=400, detail="Panel inbound not set. Please select an inbound for this panel first.")
+    sel_exists = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
     token = await _login_get_token(panel.base_url, panel.username, panel.password)
     if not token:
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
@@ -366,9 +365,16 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 # Try multiple shapes: array and single
                 bodies = []
                 if selected_ids:
+                    # Arrays
                     bodies.append({**body, "inbounds": selected_ids})
                     bodies.append({**body, "inbound_ids": selected_ids})
+                    bodies.append({**body, "inbound_tags": selected_ids})
+                    bodies.append({**body, "tags": selected_ids})
+                    bodies.append({**body, "inbounds": [{"tag": t} for t in selected_ids]})
+                    # Single
                     bodies.append({**body, "inbound_id": selected_ids[0]})
+                    bodies.append({**body, "inbound": selected_ids[0]})
+                    bodies.append({**body, "inbound_tag": selected_ids[0]})
                 else:
                     bodies.append(body)
                 for b in bodies:
