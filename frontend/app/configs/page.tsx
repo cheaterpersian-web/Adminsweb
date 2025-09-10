@@ -12,6 +12,9 @@ export default function ConfigsPage() {
   const [panels, setPanels] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
+  const [delUser, setDelUser] = useState("");
+  const [delBusy, setDelBusy] = useState(false);
+  const [delMsg, setDelMsg] = useState<string | null>(null);
 
   const loadPanels = async () => {
     try {
@@ -38,6 +41,24 @@ export default function ConfigsPage() {
     } catch (e:any) {
       setResult({ error: e.message || "خطا" });
     } finally { setBusy(false); }
+  };
+
+  const deleteUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDelBusy(true);
+    setDelMsg(null);
+    try {
+      const pid = parseInt(panelId, 10);
+      const res = await apiFetch(`/panels/${pid}/delete_user`, { method: "POST", body: JSON.stringify({ username: delUser }) });
+      if (res.ok) {
+        setDelMsg(`کاربر ${delUser} حذف شد`);
+        setDelUser("");
+      } else {
+        setDelMsg(res.error || "خطا در حذف کاربر");
+      }
+    } catch (e:any) {
+      setDelMsg(e.message || "خطا");
+    } finally { setDelBusy(false); }
   };
 
   return (
@@ -83,6 +104,30 @@ export default function ConfigsPage() {
                 )}
               </div>
             )}
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>حذف کاربر از پنل</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={deleteUser} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+            <div className="space-y-1">
+              <label className="text-sm">نام کاربر</label>
+              <input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">پنل مقصد</label>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={panelId} onChange={e=>setPanelId(e.target.value)} required>
+                {(panels || []).map((p:any)=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
+              </select>
+            </div>
+            <div className="col-span-full flex flex-col sm:flex-row gap-2">
+              <Button type="submit" variant="destructive" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
+            </div>
+            {delMsg && <div className="col-span-full text-sm text-muted-foreground">{delMsg}</div>}
           </form>
         </CardContent>
       </Card>

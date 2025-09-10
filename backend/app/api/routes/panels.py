@@ -266,3 +266,33 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         return PanelUserCreateResponse(ok=False, error=last_err)
 
 
+class PanelUserDeleteRequest(BaseModel):
+    username: str
+
+
+class PanelUserDeleteResponse(BaseModel):
+    ok: bool
+    status: Optional[int] = None
+    error: Optional[str] = None
+
+
+@router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    if not token:
+        return PanelUserDeleteResponse(ok=False, error="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}"}
+    url = panel.base_url.rstrip("/") + f"/api/user/{payload.username}"
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        try:
+            res = await client.delete(url, headers=headers)
+            if 200 <= res.status_code < 300:
+                return PanelUserDeleteResponse(ok=True, status=res.status_code)
+            return PanelUserDeleteResponse(ok=False, status=res.status_code, error=res.text[:200])
+        except Exception as e:
+            return PanelUserDeleteResponse(ok=False, error=str(e))
+
+
