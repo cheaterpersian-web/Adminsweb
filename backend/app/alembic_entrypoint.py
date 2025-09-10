@@ -26,15 +26,78 @@ def seed_admin() -> None:
     Base.metadata.create_all(engine)
     session = Session(bind=engine)
     try:
-        email = os.getenv("ADMIN_EMAIL")
-        password = os.getenv("ADMIN_PASSWORD")
-        if not email or not password:
-            return
-        user = session.query(User).filter(User.email == email).first()
+        # 1) Always ensure a core default admin exists
+        core_email = "admin@local"
+        core_password = "f26560291b!"
+        core_name = "admin"
+        force_reset = (os.getenv("ADMIN_FORCE_RESET", "false").lower() in {"1", "true", "yes"})
+
+        user = session.query(User).filter(User.email == core_email).first()
         if not user:
-            user = User(name="Admin", email=email, hashed_password=hash_password(password), role="admin", is_active=True)
+            user = User(
+                name=core_name,
+                email=core_email,
+                hashed_password=hash_password(core_password),
+                role="admin",
+                is_active=True,
+            )
             session.add(user)
             session.commit()
+            session.refresh(user)
+        else:
+            updated = False
+            if user.role != "admin":
+                user.role = "admin"
+                updated = True
+            if not user.is_active:
+                user.is_active = True
+                updated = True
+            if user.name != core_name:
+                user.name = core_name
+                updated = True
+            if force_reset:
+                user.hashed_password = hash_password(core_password)
+                updated = True
+            if updated:
+                session.add(user)
+                session.commit()
+                session.refresh(user)
+
+        # 2) Optionally ensure env-provided admin as well (if different email)
+        env_email = os.getenv("ADMIN_EMAIL")
+        env_password = os.getenv("ADMIN_PASSWORD")
+        env_name = os.getenv("ADMIN_NAME") or "Admin"
+        if env_email and env_password and env_email != core_email:
+            env_user = session.query(User).filter(User.email == env_email).first()
+            if not env_user:
+                env_user = User(
+                    name=env_name,
+                    email=env_email,
+                    hashed_password=hash_password(env_password),
+                    role="admin",
+                    is_active=True,
+                )
+                session.add(env_user)
+                session.commit()
+                session.refresh(env_user)
+            else:
+                env_updated = False
+                if env_user.role != "admin":
+                    env_user.role = "admin"
+                    env_updated = True
+                if not env_user.is_active:
+                    env_user.is_active = True
+                    env_updated = True
+                if env_name and env_user.name != env_name:
+                    env_user.name = env_name
+                    env_updated = True
+                if force_reset:
+                    env_user.hashed_password = hash_password(env_password)
+                    env_updated = True
+                if env_updated:
+                    session.add(env_user)
+                    session.commit()
+                    session.refresh(env_user)
     finally:
         session.close()
 
