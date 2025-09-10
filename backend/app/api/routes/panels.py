@@ -372,33 +372,33 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 else:
                     bodies.append(body)
                 for b in bodies:
-                try:
-                    res = await client.post(url, json=b, headers=headers)
-                except Exception as e:
-                    last_err = str(e)
-                    continue
-                if res.headers.get("content-type", "").startswith("application/json"):
                     try:
-                        data = res.json()
-                    except Exception:
-                        data = {}
-                else:
-                    data = {"raw_text": await res.aread()}
-                if 200 <= res.status_code < 300:
-                    # Try to get sub URL from response
-                    sub_url = await _extract_subscription_url(panel.base_url, data)
-                    if not sub_url:
-                        # Fetch user info to get subscription
+                        res = await client.post(url, json=b, headers=headers)
+                    except Exception as e:
+                        last_err = str(e)
+                        continue
+                    if res.headers.get("content-type", "").startswith("application/json"):
                         try:
-                            info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.name}", headers=headers)
-                            if info.headers.get("content-type", "").startswith("application/json"):
-                                udata = info.json()
-                                sub_url = await _extract_subscription_url(panel.base_url, udata)
+                            data = res.json()
                         except Exception:
-                            pass
-                    return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
-                else:
-                    last_err = f"{res.status_code} {res.text[:200]}"
+                            data = {}
+                    else:
+                        data = {"raw_text": await res.aread()}
+                    if 200 <= res.status_code < 300:
+                        # Try to get sub URL from response
+                        sub_url = await _extract_subscription_url(panel.base_url, data)
+                        if not sub_url:
+                            # Fetch user info to get subscription
+                            try:
+                                info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.name}", headers=headers)
+                                if info.headers.get("content-type", "").startswith("application/json"):
+                                    udata = info.json()
+                                    sub_url = await _extract_subscription_url(panel.base_url, udata)
+                            except Exception:
+                                pass
+                        return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
+                    else:
+                        last_err = f"{res.status_code} {res.text[:200]}"
         return PanelUserCreateResponse(ok=False, error=last_err)
 
 
