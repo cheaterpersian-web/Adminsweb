@@ -3,7 +3,7 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision: str = "20250910_0003_panel_inbound_fields"
+revision: str = "20250910_0003_inbound"
 down_revision: Union[str, None] = "20250910_0002_create_panels"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
