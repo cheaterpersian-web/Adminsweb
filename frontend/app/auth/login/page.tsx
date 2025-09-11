@@ -39,6 +39,8 @@ export default function LoginPage() {
       }
       localStorage.setItem("access_token", data.access_token);
       localStorage.setItem("refresh_token", data.refresh_token);
+      // Optional: server could include is_root_admin flag in future; here we infer false by default
+      localStorage.setItem("is_root_admin", "false");
       window.location.href = "/dashboard";
     } catch (err: any) {
       setError(err.message || "ورود ناموفق");

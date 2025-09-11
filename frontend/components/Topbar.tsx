@@ -2,12 +2,28 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getAccessToken, decodeJwt } from "../lib/auth";
 import { Button } from "./ui/button";
 
 export default function Topbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [isRootAdmin, setIsRootAdmin] = useState(false);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) return;
+    const payload = decodeJwt<any>(token);
+    // Backend embeds only sub/type; we infer root from role via server endpoints usually.
+    // For client-only gating, hide Panels unless role is admin and email in ROOT list.
+    // As we don't have email in JWT, we conservatively show Panels only to admin per local flag stored at login (optional enhancement).
+    // Fallback: call a lightweight endpoint if added. For now, show Panels link only to admins flagged in localStorage.
+    try {
+      const flag = localStorage.getItem("is_root_admin") === "true";
+      setIsRootAdmin(flag);
+    } catch {}
+  }, []);
   const logout = () => {
     if (typeof window !== "undefined") {
       localStorage.removeItem("access_token");
@@ -30,7 +46,7 @@ export default function Topbar() {
             <Link href="/users" className="hover:text-foreground">Users</Link>
             <Link href="/configs" className="hover:text-foreground">Configs</Link>
             <Link href="/audit" className="hover:text-foreground">Audit</Link>
-            <Link href="/panels" className="hover:text-foreground">Panels</Link>
+            {isRootAdmin && <Link href="/panels" className="hover:text-foreground">Panels</Link>}
           </nav>
         </div>
         <div className="flex items-center gap-2">
@@ -44,7 +60,7 @@ export default function Topbar() {
             <Link href="/users" onClick={()=>setOpen(false)}>Users</Link>
             <Link href="/configs" onClick={()=>setOpen(false)}>Configs</Link>
             <Link href="/audit" onClick={()=>setOpen(false)}>Audit</Link>
-            <Link href="/panels" onClick={()=>setOpen(false)}>Panels</Link>
+            {isRootAdmin && <Link href="/panels" onClick={()=>setOpen(false)}>Panels</Link>}
           </nav>
         </div>
       )}
