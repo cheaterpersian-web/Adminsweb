@@ -286,6 +286,7 @@ class PanelUserInfoResponse(BaseModel):
     expire: Optional[int] = None
     expires_in: Optional[int] = None
     status: Optional[str] = None
+    subscription_url: Optional[str] = None
 
 
 @router.get("/panels/{panel_id}/user/{username}/info", response_model=PanelUserInfoResponse)
@@ -302,6 +303,7 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
         expire_ts: Optional[int] = None
         status: Optional[str] = None
         used: Optional[int] = None
+        subscription_url: Optional[str] = None
         # Fetch user core info
         try:
             ures = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
@@ -314,6 +316,11 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
                         expire_ts = int(u.get("expire"))
                     if isinstance(u.get("status"), str):
                         status = u.get("status")
+                    # Prefer exact subscription_url if provided
+                    if isinstance(u.get("subscription_url"), str):
+                        subscription_url = u.get("subscription_url")
+                    elif isinstance(u.get("subscription"), str):
+                        subscription_url = u.get("subscription")
         except Exception:
             pass
         # Fetch usage if not embedded
@@ -347,6 +354,7 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
             expire=expire_ts,
             expires_in=expires_in,
             status=status,
+            subscription_url=subscription_url,
         )
 
 
