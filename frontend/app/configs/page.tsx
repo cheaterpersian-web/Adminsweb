@@ -13,6 +13,8 @@ export default function ConfigsPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
   const [created, setCreated] = useState<any[] | null>(null);
+  const [loadingInfo, setLoadingInfo] = useState<Record<number, boolean>>({});
+  const [userInfo, setUserInfo] = useState<Record<number, any>>({});
   const [delUser, setDelUser] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delMsg, setDelMsg] = useState<string | null>(null);
@@ -122,13 +124,14 @@ export default function ConfigsPage() {
         </CardHeader>
         <CardContent>
           <div className="overflow-auto">
-            <table className="min-w-full sm:min-w-[800px] w-full text-sm border">
+            <table className="min-w-full sm:min-w-[1000px] w-full text-sm border">
               <thead className="bg-secondary">
                 <tr>
                   <th className="p-2 text-left">User</th>
                   <th className="p-2 text-left">Panel</th>
                   <th className="p-2 text-left">Created</th>
                   <th className="p-2 text-left">Subscription</th>
+                  <th className="p-2 text-left">Usage</th>
                 </tr>
               </thead>
               <tbody>
@@ -139,6 +142,24 @@ export default function ConfigsPage() {
                     <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
                     <td className="p-2 truncate">
                       {r.subscription_url ? <a className="underline" href={r.subscription_url} target="_blank" rel="noreferrer">{r.subscription_url}</a> : <span className="text-muted-foreground">-</span>}
+                    </td>
+                    <td className="p-2">
+                      {userInfo[r.id] ? (
+                        <div className="space-y-0.5 text-xs">
+                          <div>Used: {formatBytes(userInfo[r.id].used)} / Limit: {formatBytes(userInfo[r.id].data_limit)}</div>
+                          <div>Remain: {formatBytes(userInfo[r.id].remaining)} / Expires in: {formatDuration(userInfo[r.id].expires_in)}</div>
+                          <div>Status: {userInfo[r.id].status || '-'}</div>
+                        </div>
+                      ) : (
+                        <Button type="button" size="sm" disabled={!!loadingInfo[r.id]} onClick={async()=>{
+                          setLoadingInfo(s=>({ ...s, [r.id]: true }));
+                          try {
+                            const info = await apiFetch(`/panels/${r.panel_id}/user/${encodeURIComponent(r.username)}/info`);
+                            setUserInfo(s=>({ ...s, [r.id]: info }));
+                          } catch {}
+                          setLoadingInfo(s=>({ ...s, [r.id]: false }));
+                        }}>Load</Button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -179,4 +200,22 @@ export default function ConfigsPage() {
       </Card>
     </main>
   );
+}
+
+function formatBytes(v?: number) {
+  if (!v && v !== 0) return '-';
+  const units = ['B','KB','MB','GB','TB'];
+  let val = v;
+  let i = 0;
+  while (val >= 1024 && i < units.length-1) { val /= 1024; i++; }
+  return `${val.toFixed(1)} ${units[i]}`;
+}
+
+function formatDuration(s?: number) {
+  if (!s && s !== 0) return '-';
+  const d = Math.floor((s||0) / 86400);
+  const h = Math.floor(((s||0) % 86400) / 3600);
+  if (d > 0) return `${d}d ${h}h`;
+  const m = Math.floor(((s||0) % 3600) / 60);
+  return `${h}h ${m}m`;
 }

@@ -278,6 +278,78 @@ def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_
     return CreatedUsersResponse(items=items)
 
 
+class PanelUserInfoResponse(BaseModel):
+    username: str
+    data_limit: Optional[int] = None
+    used: Optional[int] = None
+    remaining: Optional[int] = None
+    expire: Optional[int] = None
+    expires_in: Optional[int] = None
+    status: Optional[str] = None
+
+
+@router.get("/panels/{panel_id}/user/{username}/info", response_model=PanelUserInfoResponse)
+async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        data_limit: Optional[int] = None
+        expire_ts: Optional[int] = None
+        status: Optional[str] = None
+        used: Optional[int] = None
+        # Fetch user core info
+        try:
+            ures = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+            if ures.headers.get("content-type", "").startswith("application/json"):
+                u = ures.json()
+                if isinstance(u, dict):
+                    if isinstance(u.get("data_limit"), int):
+                        data_limit = int(u.get("data_limit"))
+                    if isinstance(u.get("expire"), int):
+                        expire_ts = int(u.get("expire"))
+                    if isinstance(u.get("status"), str):
+                        status = u.get("status")
+        except Exception:
+            pass
+        # Fetch usage if not embedded
+        try:
+            r = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}/usage", headers=headers)
+            if r.headers.get("content-type", "").startswith("application/json"):
+                j = r.json()
+                if isinstance(j, dict):
+                    if isinstance(j.get("total"), int):
+                        used = int(j.get("total"))
+                    elif isinstance(j.get("download"), int) or isinstance(j.get("upload"), int):
+                        d = int(j.get("download") or 0)
+                        up = int(j.get("upload") or 0)
+                        used = d + up
+        except Exception:
+            pass
+
+        remaining: Optional[int] = None
+        if data_limit is not None and data_limit > 0 and used is not None:
+            remaining = max(0, data_limit - used)
+        expires_in: Optional[int] = None
+        if expire_ts is not None and expire_ts > 0:
+            now = int(datetime.now(tz=timezone.utc).timestamp())
+            expires_in = max(0, expire_ts - now)
+
+        return PanelUserInfoResponse(
+            username=username,
+            data_limit=data_limit,
+            used=used,
+            remaining=remaining,
+            expire=expire_ts,
+            expires_in=expires_in,
+            status=status,
+        )
+
+
 class PanelUserCreateRequest(BaseModel):
     name: str
     volume_gb: float
