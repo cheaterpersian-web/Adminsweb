@@ -15,6 +15,7 @@ export default function ConfigsPage() {
   const [created, setCreated] = useState<any[] | null>(null);
   const [loadingInfo, setLoadingInfo] = useState<Record<number, boolean>>({});
   const [userInfo, setUserInfo] = useState<Record<number, any>>({});
+  const [copied, setCopied] = useState<Record<number, boolean>>({});
   const [delUser, setDelUser] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delMsg, setDelMsg] = useState<string | null>(null);
@@ -157,7 +158,23 @@ export default function ConfigsPage() {
                     <td className="p-2">{r.panel_id}</td>
                     <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
                     <td className="p-2 truncate">
-                      {r.subscription_url ? <a className="underline" href={r.subscription_url} target="_blank" rel="noreferrer">{r.subscription_url}</a> : <span className="text-muted-foreground">-</span>}
+                      {r.subscription_url ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          aria-label="Copy subscription URL"
+                          onClick={async()=>{
+                            try {
+                              await navigator.clipboard.writeText(r.subscription_url);
+                              setCopied(s=>({ ...s, [r.id]: true }));
+                              setTimeout(()=> setCopied(s=>({ ...s, [r.id]: false })), 1500);
+                            } catch {}
+                          }}
+                        >{copied[r.id] ? "Copied" : "Copy link"}</Button>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
                     </td>
                     <td className="p-2">
                       {userInfo[r.id] ? (
