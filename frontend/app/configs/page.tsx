@@ -27,10 +27,26 @@ export default function ConfigsPage() {
     } catch {}
   };
   if (panels === null) { void loadPanels(); }
+  const loadInfoForRows = async (items: any[]) => {
+    try {
+      const entries = await Promise.all(items.map(async (r:any) => {
+        try {
+          const info = await apiFetch(`/panels/${r.panel_id}/user/${encodeURIComponent(r.username)}/info`);
+          return [r.id, info] as const;
+        } catch { return [r.id, null] as const; }
+      }));
+      const map: Record<number, any> = {};
+      for (const [id, info] of entries) { if (info) map[id] = info; }
+      setUserInfo(s => ({ ...s, ...map }));
+    } catch {}
+  };
+
   const loadCreated = async () => {
     try {
       const res = await apiFetch(`/panels/created`);
-      setCreated(res.items || []);
+      const items = res.items || [];
+      setCreated(items);
+      if (items.length) { void loadInfoForRows(items); }
     } catch { setCreated([]); }
   };
   if (created === null) { void loadCreated(); }
@@ -151,14 +167,7 @@ export default function ConfigsPage() {
                           <div>Status: {userInfo[r.id].status || '-'}</div>
                         </div>
                       ) : (
-                        <Button type="button" size="sm" disabled={!!loadingInfo[r.id]} onClick={async()=>{
-                          setLoadingInfo(s=>({ ...s, [r.id]: true }));
-                          try {
-                            const info = await apiFetch(`/panels/${r.panel_id}/user/${encodeURIComponent(r.username)}/info`);
-                            setUserInfo(s=>({ ...s, [r.id]: info }));
-                          } catch {}
-                          setLoadingInfo(s=>({ ...s, [r.id]: false }));
-                        }}>Load</Button>
+                        <span className="text-xs text-muted-foreground">Loading…</span>
                       )}
                     </td>
                   </tr>
