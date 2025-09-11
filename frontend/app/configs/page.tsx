@@ -127,7 +127,20 @@ export default function ConfigsPage() {
               <div className="col-span-full text-sm bg-green-500/10 text-green-700 border border-green-500/30 rounded-md p-2">
                 <div>ساخته شد: {result.username}</div>
                 {result.sub && (
-                  <div className="truncate">Subscription: <a className="underline" href={result.sub} target="_blank" rel="noreferrer">{result.sub}</a></div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      aria-label="Copy subscription URL"
+                      onClick={async()=>{
+                        try {
+                          await navigator.clipboard.writeText(result.sub!);
+                        } catch {}
+                      }}
+                    >Copy link</Button>
+                    <span className="truncate">{result.sub}</span>
+                  </div>
                 )}
               </div>
             )}
