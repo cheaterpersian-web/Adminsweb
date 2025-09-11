@@ -11,6 +11,7 @@ from app.models.panel_inbound import PanelInbound
 from app.models.panel_created_user import PanelCreatedUser
 from pydantic import BaseModel, AnyHttpUrl
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse, urlunparse
 
 
 router = APIRouter()
@@ -346,6 +347,8 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
             now = int(datetime.now(tz=timezone.utc).timestamp())
             expires_in = max(0, expire_ts - now)
 
+        # Canonicalize subscription to panel base URL if present
+        subscription_url = _canonicalize_subscription_url(panel.base_url, subscription_url)
         return PanelUserInfoResponse(
             username=username,
             data_limit=data_limit,
@@ -433,6 +436,26 @@ async def _extract_subscription_url(base_url: str, data: dict) -> Optional[str]:
     return None
 
 
+def _canonicalize_subscription_url(base_url: str, subscription_url: Optional[str]) -> Optional[str]:
+    if not subscription_url:
+        return None
+    try:
+        b = urlparse(base_url)
+        s = urlparse(subscription_url)
+        # Try to extract token from path if contains '/sub/'
+        token = None
+        if "/sub/" in s.path:
+            token = s.path.split("/sub/", 1)[1].split("/", 1)[0]
+        # Build canonical path
+        if token:
+            path = f"/sub/{token}"
+            return urlunparse((b.scheme, b.netloc, path, "", s.query, ""))
+        # Otherwise, just swap scheme/host to base_url
+        return urlunparse((b.scheme, b.netloc, s.path or "/sub", "", s.query, ""))
+    except Exception:
+        return subscription_url
+
+
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
 async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
@@ -513,9 +536,17 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.name}", headers=headers)
                     if info.headers.get("content-type", "").startswith("application/json"):
                         udata = info.json()
-                        sub_url = await _extract_subscription_url(panel.base_url, udata)
+                        # Prefer exact field
+                        if isinstance(udata, dict) and isinstance(udata.get("subscription_url"), str):
+                            sub_url = udata.get("subscription_url")
+                        elif isinstance(udata, dict) and isinstance(udata.get("subscription"), str):
+                            sub_url = udata.get("subscription")
+                        if not sub_url:
+                            sub_url = await _extract_subscription_url(panel.base_url, udata)
                 except Exception:
                     pass
+            # Canonicalize to base_url domain
+            sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
             # persist created user record
             try:
                 rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
