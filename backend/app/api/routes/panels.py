@@ -8,6 +8,7 @@ from app.models.user import User
 from app.models.panel import Panel
 from app.core.auth import require_roles
 from app.models.panel_inbound import PanelInbound
+from app.models.panel_created_user import PanelCreatedUser
 from pydantic import BaseModel, AnyHttpUrl
 from datetime import datetime, timedelta, timezone
 
@@ -258,6 +259,25 @@ def get_selected_inbounds(panel_id: int, db: Session = Depends(get_db), _: User 
     return PanelSelectedInboundsResponse(inbound_ids=[r.inbound_id for r in rows])
 
 
+class CreatedUserItem(BaseModel):
+    id: int
+    panel_id: int
+    username: str
+    subscription_url: Optional[str] = None
+    created_at: datetime
+
+
+class CreatedUsersResponse(BaseModel):
+    items: list[CreatedUserItem]
+
+
+@router.get("/panels/created", response_model=CreatedUsersResponse)
+def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+    rows = db.query(PanelCreatedUser).order_by(PanelCreatedUser.id.desc()).all()
+    items = [CreatedUserItem(id=r.id, panel_id=r.panel_id, username=r.username, subscription_url=r.subscription_url, created_at=r.created_at) for r in rows]
+    return CreatedUsersResponse(items=items)
+
+
 class PanelUserCreateRequest(BaseModel):
     name: str
     volume_gb: float
@@ -416,6 +436,13 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                         sub_url = await _extract_subscription_url(panel.base_url, udata)
                 except Exception:
                     pass
+            # persist created user record
+            try:
+                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
+                db.add(rec)
+                db.commit()
+            except Exception:
+                db.rollback()
             return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
         else:
             return PanelUserCreateResponse(ok=False, error=f"{res.status_code} {res.text[:400]}")
@@ -445,6 +472,12 @@ async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, d
         try:
             res = await client.delete(url, headers=headers)
             if 200 <= res.status_code < 300:
+                # best-effort delete from local records
+                try:
+                    db.query(PanelCreatedUser).filter(PanelCreatedUser.panel_id == panel_id, PanelCreatedUser.username == payload.username).delete()
+                    db.commit()
+                except Exception:
+                    db.rollback()
                 return PanelUserDeleteResponse(ok=True, status=res.status_code)
             return PanelUserDeleteResponse(ok=False, status=res.status_code, error=res.text[:200])
         except Exception as e:

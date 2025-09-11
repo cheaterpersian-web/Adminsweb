@@ -12,6 +12,7 @@ export default function ConfigsPage() {
   const [panels, setPanels] = useState<any[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
+  const [created, setCreated] = useState<any[] | null>(null);
   const [delUser, setDelUser] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delMsg, setDelMsg] = useState<string | null>(null);
@@ -24,6 +25,13 @@ export default function ConfigsPage() {
     } catch {}
   };
   if (panels === null) { void loadPanels(); }
+  const loadCreated = async () => {
+    try {
+      const res = await apiFetch(`/panels/created`);
+      setCreated(res.items || []);
+    } catch { setCreated([]); }
+  };
+  if (created === null) { void loadCreated(); }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,6 +113,44 @@ export default function ConfigsPage() {
               </div>
             )}
           </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Created</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-auto">
+            <table className="min-w-full sm:min-w-[800px] w-full text-sm border">
+              <thead className="bg-secondary">
+                <tr>
+                  <th className="p-2 text-left">User</th>
+                  <th className="p-2 text-left">Panel</th>
+                  <th className="p-2 text-left">Created</th>
+                  <th className="p-2 text-left">Subscription</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(created||[]).map((r:any)=> (
+                  <tr key={r.id} className="border-t">
+                    <td className="p-2">{r.username}</td>
+                    <td className="p-2">{r.panel_id}</td>
+                    <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
+                    <td className="p-2 truncate">
+                      {r.subscription_url ? <a className="underline" href={r.subscription_url} target="_blank" rel="noreferrer">{r.subscription_url}</a> : <span className="text-muted-foreground">-</span>}
+                    </td>
+                  </tr>
+                ))}
+                {created && created.length===0 && (
+                  <tr><td colSpan={4} className="p-3 text-muted-foreground">موردی نیست</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3">
+            <Button type="button" variant="outline" onClick={loadCreated}>بروزرسانی</Button>
+          </div>
         </CardContent>
       </Card>
 
