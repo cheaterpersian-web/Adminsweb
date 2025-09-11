@@ -261,31 +261,52 @@ function formatDuration(s?: number) {
 
 function formatShortGBPair(remaining?: number, total?: number) {
   if ((remaining === undefined || remaining === null) && (total === undefined || total === null)) return '-';
-  const toGB = (v?: number) => {
-    if (v === undefined || v === null) return 0;
-    return v / (1024 ** 3);
+  const GB = 1024 ** 3;
+  const MB = 1024 ** 2;
+  const chooseUnit = (r?: number, t?: number) => {
+    const rv = r ?? 0, tv = t ?? 0;
+    // Use GB if either side is >= 1 GB; otherwise use MB
+    return (rv >= GB || tv >= GB) ? 'gb' : 'mb';
   };
-  const r = toGB(remaining);
-  const t = toGB(total);
-  if (t > 0) return `${Math.round(r)}/${Math.round(t)}gb`;
-  return `${Math.round(r)}gb/∞`;
+  const unit = chooseUnit(remaining, total);
+  const div = unit === 'gb' ? GB : MB;
+  const r = remaining !== undefined && remaining !== null ? Math.round(remaining / div) : undefined;
+  const t = total !== undefined && total !== null ? Math.round(total / div) : undefined;
+  if (t !== undefined && t > 0) return `${r ?? 0}/${t}${unit}`;
+  return `${r ?? 0}${unit}/∞`;
 }
 
 function formatShortDayPair(expiresIn?: number, createdAt?: string, expireTs?: number) {
-  // Prefer expiresIn if provided; otherwise attempt from expireTs-createdAt
-  if (expiresIn !== undefined && expiresIn !== null) {
-    const d = Math.max(0, Math.round(expiresIn / 86400));
-    return `${d}day`;
-  }
+  // Compute remaining and total seconds
+  const now = Math.floor(Date.now() / 1000);
+  const remainSec = (expiresIn !== undefined && expiresIn !== null)
+    ? Math.max(0, Math.floor(expiresIn))
+    : (expireTs ? Math.max(0, expireTs - now) : undefined);
+  let totalSec: number | undefined = undefined;
   try {
     if (expireTs && createdAt) {
-      const start = new Date(createdAt).getTime() / 1000;
-      const totalSec = Math.max(0, expireTs - start);
-      const remainSec = Math.max(0, expireTs - Math.floor(Date.now()/1000));
-      const totalD = Math.max(1, Math.round(totalSec / 86400));
-      const remainD = Math.max(0, Math.round(remainSec / 86400));
-      return `${remainD}/${totalD}day`;
+      const start = Math.floor(new Date(createdAt).getTime() / 1000);
+      totalSec = Math.max(0, expireTs - start);
     }
   } catch {}
-  return '-';
+
+  if (remainSec === undefined && totalSec === undefined) return '-';
+
+  // Decide unit: use hours if total or remaining is under 2 days; otherwise days
+  const useHours = (totalSec !== undefined && totalSec < 2 * 86400) || (remainSec !== undefined && remainSec < 86400);
+  if (useHours) {
+    const rH = remainSec !== undefined ? Math.max(0, Math.round(remainSec / 3600)) : 0;
+    if (totalSec !== undefined && totalSec > 0) {
+      const tH = Math.max(1, Math.round(totalSec / 3600));
+      return `${rH}/${tH}h`;
+    }
+    return `${rH}h`;
+  }
+
+  const rD = remainSec !== undefined ? Math.max(0, Math.round(remainSec / 86400)) : 0;
+  if (totalSec !== undefined && totalSec > 0) {
+    const tD = Math.max(1, Math.round(totalSec / 86400));
+    return `${rD}/${tD}day`;
+  }
+  return `${rD}day`;
 }
