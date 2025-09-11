@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Accept plain string to support legacy non-email usernames like "admin"
+    email: str
     password: str
 
 

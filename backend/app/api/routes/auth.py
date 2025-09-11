@@ -16,6 +16,7 @@ router = APIRouter()
 @router.post("/auth/login", response_model=TokenPair)
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)):
+    # Allow login with either email or username stored in email field
     user = db.query(User).filter(User.email == payload.email).first()
     if not user or not verify_password(payload.password, user.hashed_password) or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
