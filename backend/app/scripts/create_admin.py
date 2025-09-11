@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.db.session import SessionLocal
 from app.models.user import User
+from app.models.root_admin import RootAdmin
 
 
 def ensure_admin(email: str, password: str, name: str, phone: str | None) -> User:
@@ -53,7 +54,18 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--phone", default=None, help="Phone number (optional)")
     args = parser.parse_args(argv)
 
-    ensure_admin(email=args.email, password=args.password, name=args.name, phone=args.phone)
+    user = ensure_admin(email=args.email, password=args.password, name=args.name, phone=args.phone)
+    # Mark as root admin
+    db: Session = SessionLocal()
+    try:
+        ra = db.query(RootAdmin).filter(RootAdmin.user_id == user.id).first()
+        if not ra:
+            ra = RootAdmin(user_id=user.id)
+            db.add(ra)
+            db.commit()
+            print(f"Granted root admin privileges to user id={user.id}")
+    finally:
+        db.close()
     return 0
 
 
