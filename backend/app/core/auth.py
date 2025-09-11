@@ -45,3 +45,11 @@ def require_roles(allowed_roles: Sequence[str]):
         return user
 
     return dependency
+
+
+def require_root_admin(user: User = Depends(get_current_user)) -> User:
+    # Root admin check based on configured email list
+    emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+    if user.role != "admin" or user.email.lower() not in emails:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin only")
+    return user

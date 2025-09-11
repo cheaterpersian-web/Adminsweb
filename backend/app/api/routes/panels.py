@@ -6,9 +6,10 @@ import httpx
 from app.db.session import get_db
 from app.models.user import User
 from app.models.panel import Panel
-from app.core.auth import require_roles
+from app.core.auth import require_roles, require_root_admin, get_current_user
 from app.models.panel_inbound import PanelInbound
 from app.models.panel_created_user import PanelCreatedUser
+from app.models.user_panel_credentials import UserPanelCredential
 from pydantic import BaseModel, AnyHttpUrl
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
@@ -44,13 +45,13 @@ class PanelRead(BaseModel):
 
 
 @router.get("/panels", response_model=List[PanelRead])
-def list_panels(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+def list_panels(db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panels = db.query(Panel).order_by(Panel.id.desc()).all()
     return panels
 
 
 @router.post("/panels", response_model=PanelRead)
-def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     if db.query(Panel).filter(Panel.name == payload.name).first():
         raise HTTPException(status_code=400, detail="Panel name already exists")
     panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password)
@@ -61,7 +62,7 @@ def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = 
 
 
 @router.put("/panels/{panel_id}", response_model=PanelRead)
-def update_panel(panel_id: int, payload: PanelUpdate, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+def update_panel(panel_id: int, payload: PanelUpdate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -135,7 +136,7 @@ async def _try_login(base_url: str, username: str, password: str) -> tuple[bool,
 
 
 @router.post("/panels/test", response_model=PanelTestResponse)
-async def test_panel(payload: PanelTestRequest, _: User = Depends(require_roles(["admin", "operator"]))):
+async def test_panel(payload: PanelTestRequest, _: User = Depends(require_root_admin)):
     ok, endpoint, status, info = await _try_login(str(payload.base_url), payload.username, payload.password)
     if ok:
         return PanelTestResponse(ok=True, endpoint=endpoint, status=status, token_preview=info)
@@ -153,7 +154,7 @@ class PanelInboundsResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/inbounds", response_model=PanelInboundsResponse)
-async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -202,7 +203,7 @@ class PanelHostsResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/hosts", response_model=PanelHostsResponse)
-async def list_hosts(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+async def list_hosts(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -232,7 +233,7 @@ class PanelInboundSelectRequest(BaseModel):
 
 
 @router.post("/panels/{panel_id}/inbound", response_model=PanelRead)
-def set_inbound(panel_id: int, payload: PanelInboundSelectRequest, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+def set_inbound(panel_id: int, payload: PanelInboundSelectRequest, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -252,7 +253,7 @@ class PanelSelectedInboundsResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/inbound", response_model=PanelSelectedInboundsResponse)
-def get_selected_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+def get_selected_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -273,7 +274,7 @@ class CreatedUsersResponse(BaseModel):
 
 
 @router.get("/panels/created", response_model=CreatedUsersResponse)
-def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     rows = db.query(PanelCreatedUser).order_by(PanelCreatedUser.id.desc()).all()
     items = [CreatedUserItem(id=r.id, panel_id=r.panel_id, username=r.username, subscription_url=r.subscription_url, created_at=r.created_at) for r in rows]
     return CreatedUsersResponse(items=items)
@@ -457,13 +458,22 @@ def _canonicalize_subscription_url(base_url: str, subscription_url: Optional[str
 
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
-async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
     # Require inbound selection to avoid invalid subscription links
     sel_exists = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
-    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    # Choose credentials: operator's own if available; otherwise panel's default admin
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
 
@@ -570,11 +580,19 @@ class PanelUserDeleteResponse(BaseModel):
 
 
 @router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
-async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
-    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         return PanelUserDeleteResponse(ok=False, error="Login to panel failed")
     headers = {"Authorization": f"Bearer {token}"}

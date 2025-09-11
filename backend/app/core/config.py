@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     project_name: str = Field(default="Marzban Admin Panel", alias="PROJECT_NAME")
     env: str = Field(default="development", alias="ENV")
 
+    # Access Control
+    root_admin_emails: str = Field(default="admin@example.com", alias="ROOT_ADMIN_EMAILS")
+
     class Config:
         case_sensitive = True
         env_file = ".env"
