@@ -192,8 +192,8 @@ export default function ConfigsPage() {
                     <td className="p-2">
                       {userInfo[r.id] ? (
                         <div className="space-y-0.5 text-xs">
-                          <div>Used: {formatBytes(userInfo[r.id].used)} / Limit: {formatBytes(userInfo[r.id].data_limit)}</div>
-                          <div>Remain: {formatBytes(userInfo[r.id].remaining)} / Expires in: {formatDuration(userInfo[r.id].expires_in)}</div>
+                          <div>{formatShortGBPair(userInfo[r.id].remaining, userInfo[r.id].data_limit)}</div>
+                          <div>{formatShortDayPair(userInfo[r.id].expires_in, r.created_at, userInfo[r.id].expire)}</div>
                           <div>Status: {userInfo[r.id].status || '-'}</div>
                         </div>
                       ) : (
@@ -257,4 +257,35 @@ function formatDuration(s?: number) {
   if (d > 0) return `${d}d ${h}h`;
   const m = Math.floor(((s||0) % 3600) / 60);
   return `${h}h ${m}m`;
+}
+
+function formatShortGBPair(remaining?: number, total?: number) {
+  if ((remaining === undefined || remaining === null) && (total === undefined || total === null)) return '-';
+  const toGB = (v?: number) => {
+    if (v === undefined || v === null) return 0;
+    return v / (1024 ** 3);
+  };
+  const r = toGB(remaining);
+  const t = toGB(total);
+  if (t > 0) return `${Math.round(r)}/${Math.round(t)}gb`;
+  return `${Math.round(r)}gb/∞`;
+}
+
+function formatShortDayPair(expiresIn?: number, createdAt?: string, expireTs?: number) {
+  // Prefer expiresIn if provided; otherwise attempt from expireTs-createdAt
+  if (expiresIn !== undefined && expiresIn !== null) {
+    const d = Math.max(0, Math.round(expiresIn / 86400));
+    return `${d}day`;
+  }
+  try {
+    if (expireTs && createdAt) {
+      const start = new Date(createdAt).getTime() / 1000;
+      const totalSec = Math.max(0, expireTs - start);
+      const remainSec = Math.max(0, expireTs - Math.floor(Date.now()/1000));
+      const totalD = Math.max(1, Math.round(totalSec / 86400));
+      const remainD = Math.max(0, Math.round(remainSec / 86400));
+      return `${remainD}/${totalD}day`;
+    }
+  } catch {}
+  return '-';
 }
