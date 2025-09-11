@@ -283,30 +283,37 @@ function formatShortDayPair(expiresIn?: number, createdAt?: string, expireTs?: n
     ? Math.max(0, Math.floor(expiresIn))
     : (expireTs ? Math.max(0, expireTs - now) : undefined);
   let totalSec: number | undefined = undefined;
+  let elapsedSec: number | undefined = undefined;
   try {
     if (expireTs && createdAt) {
       const start = Math.floor(new Date(createdAt).getTime() / 1000);
       totalSec = Math.max(0, expireTs - start);
+      const rem = remainSec !== undefined ? remainSec : Math.max(0, expireTs - now);
+      elapsedSec = Math.max(0, totalSec - rem);
     }
   } catch {}
 
-  if (remainSec === undefined && totalSec === undefined) return '-';
+  if (elapsedSec === undefined && totalSec === undefined) return '-';
 
   // Decide unit: use hours if total or remaining is under 2 days; otherwise days
   const useHours = (totalSec !== undefined && totalSec < 2 * 86400) || (remainSec !== undefined && remainSec < 86400);
   if (useHours) {
-    const rH = remainSec !== undefined ? Math.max(0, Math.round(remainSec / 3600)) : 0;
-    if (totalSec !== undefined && totalSec > 0) {
-      const tH = Math.max(1, Math.round(totalSec / 3600));
-      return `${rH}/${tH}h`;
+    const eHraw = elapsedSec !== undefined ? elapsedSec / 3600 : 0;
+    const tHraw = totalSec !== undefined ? totalSec / 3600 : undefined;
+    const eH = eHraw > 0 && eHraw < 1 ? 1 : Math.floor(eHraw);
+    if (tHraw !== undefined && tHraw > 0) {
+      const tH = Math.max(1, Math.ceil(tHraw));
+      return `${eH}/${tH}h`;
     }
-    return `${rH}h`;
+    return `${eH}h`;
   }
 
-  const rD = remainSec !== undefined ? Math.max(0, Math.round(remainSec / 86400)) : 0;
-  if (totalSec !== undefined && totalSec > 0) {
-    const tD = Math.max(1, Math.round(totalSec / 86400));
-    return `${rD}/${tD}day`;
+  const eDraw = elapsedSec !== undefined ? elapsedSec / 86400 : 0;
+  const tDraw = totalSec !== undefined ? totalSec / 86400 : undefined;
+  const eD = eDraw > 0 && eDraw < 1 ? 1 : Math.floor(eDraw);
+  if (tDraw !== undefined && tDraw > 0) {
+    const tD = Math.max(1, Math.ceil(tDraw));
+    return `${eD}/${tD}day`;
   }
-  return `${rD}day`;
+  return `${eD}day`;
 }
