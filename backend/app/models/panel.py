@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 from app.db.base import Base
 
 
@@ -12,4 +12,5 @@ class Panel(Base):
     password = Column(String(255), nullable=False)
     inbound_id = Column(String(255), nullable=True)
     inbound_tag = Column(String(255), nullable=True)
+    is_default = Column(Boolean, nullable=False, default=False, server_default='false')
 

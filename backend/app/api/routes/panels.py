@@ -39,6 +39,7 @@ class PanelRead(BaseModel):
     username: str
     inbound_id: Optional[str] = None
     inbound_tag: Optional[str] = None
+    is_default: bool = False
 
     class Config:
         from_attributes = True
@@ -76,6 +77,28 @@ def list_my_panels(db: Session = Depends(get_db), current_user: User = Depends(r
         return panels
     # Others: none
     return []
+
+
+@router.get("/panels/default", response_model=PanelRead)
+def get_default_panel(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+    panel = db.query(Panel).filter(Panel.is_default == True).order_by(Panel.id.desc()).first()  # noqa: E712
+    if not panel:
+        raise HTTPException(status_code=404, detail="No default panel set")
+    return panel
+
+
+@router.post("/panels/{panel_id}/default", response_model=PanelRead)
+def set_default_panel(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    # unset others, set this one
+    db.query(Panel).update({Panel.is_default: False})
+    panel.is_default = True
+    db.add(panel)
+    db.commit()
+    db.refresh(panel)
+    return panel
 
 
 @router.post("/panels", response_model=PanelRead)

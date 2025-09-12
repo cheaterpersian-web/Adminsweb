@@ -12,9 +12,12 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.add_column("panels", sa.Column("inbound_id", sa.String(length=255), nullable=True))
     op.add_column("panels", sa.Column("inbound_tag", sa.String(length=255), nullable=True))
+    # Add is_default with server_default false for backfill
+    op.add_column("panels", sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.text("false")))
 
 
 def downgrade() -> None:
+    op.drop_column("panels", "is_default")
     op.drop_column("panels", "inbound_tag")
     op.drop_column("panels", "inbound_id")
 

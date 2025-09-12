@@ -29,7 +29,11 @@ export default function ConfigsPage() {
         try { data = await apiFetch("/panels/my"); } catch {}
       }
       setPanels(data);
-      if (data.length && !panelId) setPanelId(String(data[0].id));
+      if (data.length && !panelId) {
+        // If any default exists, prefer it; otherwise first
+        const def = data.find((p:any)=> p.is_default);
+        setPanelId(String((def || data[0]).id));
+      }
     } catch {}
   };
   if (panels === null) { void loadPanels(); }
@@ -118,12 +122,10 @@ export default function ConfigsPage() {
               <label className="text-sm">مدت (روز)</label>
               <input inputMode="numeric" className="w-full h-10 px-3 rounded-md border bg-background" value={durationDays} onChange={e=>setDurationDays(e.target.value)} placeholder="30" required />
             </div>
-            <div className="space-y-1">
-              <label className="text-sm">پنل مقصد</label>
-              <select className="w-full h-10 px-3 rounded-md border bg-background" value={panelId} onChange={e=>setPanelId(e.target.value)} required>
-                {(panels || []).map((p:any)=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
-              </select>
-            </div>
+            {/* For operators, hide panel select and auto-use default; for sudo, show selector */}
+            {Array.isArray(panels) && panels.length > 0 && (
+              <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
+            )}
             <div className="col-span-full flex flex-col sm:flex-row gap-2">
               <Button type="submit" disabled={busy || !name || !volumeGb || !durationDays || !panelId}>ایجاد کاربر</Button>
             </div>
@@ -229,12 +231,9 @@ export default function ConfigsPage() {
               <label className="text-sm">نام کاربر</label>
               <input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required />
             </div>
-            <div className="space-y-1">
-              <label className="text-sm">پنل مقصد</label>
-              <select className="w-full h-10 px-3 rounded-md border bg-background" value={panelId} onChange={e=>setPanelId(e.target.value)} required>
-                {(panels || []).map((p:any)=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
-              </select>
-            </div>
+            {Array.isArray(panels) && panels.length > 0 && (
+              <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
+            )}
             <div className="col-span-full flex flex-col sm:flex-row gap-2">
               <Button type="submit" variant="destructive" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
             </div>
@@ -243,6 +242,26 @@ export default function ConfigsPage() {
         </CardContent>
       </Card>
     </main>
+  );
+}
+
+function DefaultAwarePanelSelect({ panels, panelId, setPanelId }: { panels: any[]; panelId: string; setPanelId: (v: string)=>void }) {
+  // If user is operator (no is_root_admin flag here), backend already restricts /panels to sudo only.
+  // Heuristics: if only one panel is visible, hide selector; otherwise show selector.
+  const onlyOne = Array.isArray(panels) && panels.length === 1;
+  if (onlyOne) {
+    // Ensure the single panel is selected
+    const only = panels[0];
+    if (!panelId || panelId !== String(only.id)) setPanelId(String(only.id));
+    return null;
+  }
+  return (
+    <div className="space-y-1">
+      <label className="text-sm">پنل مقصد</label>
+      <select className="w-full h-10 px-3 rounded-md border bg-background" value={panelId} onChange={e=>setPanelId(e.target.value)} required>
+        {(panels || []).map((p:any)=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}{p.is_default ? " (default)" : ""}</option>)}
+      </select>
+    </div>
   );
 }
 

@@ -5,7 +5,7 @@ import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 
-type Panel = { id: number; name: string; base_url: string; username: string };
+type Panel = { id: number; name: string; base_url: string; username: string; is_default?: boolean };
 type InboundItem = { id: string; tag?: string; remark?: string };
 type HostItem = { host: string };
 
@@ -118,6 +118,13 @@ export default function PanelsPage() {
     } finally { setBusy(false); }
   };
 
+  const setDefault = async (id: number) => {
+    try {
+      await apiFetch(`/panels/${id}/default`, { method: "POST" });
+      await load();
+    } catch {}
+  };
+
   return (
     <main className="space-y-6">
       <div className="space-y-1">
@@ -205,6 +212,7 @@ export default function PanelsPage() {
                   <th className="p-2 text-left">Base URL</th>
                   <th className="p-2 text-left hidden md:table-cell">Username</th>
                   <th className="p-2 text-left">Selected Inbounds</th>
+                  <th className="p-2 text-left">Default</th>
                 </tr>
               </thead>
               <tbody>
@@ -221,6 +229,12 @@ export default function PanelsPage() {
                         ))}
                         {(!savedByPanel[p.id] || savedByPanel[p.id].length===0) && <span className="text-xs text-muted-foreground">-</span>}
                       </div>
+                    </td>
+                    <td className="p-2">
+                      <label className="inline-flex items-center gap-2">
+                        <input type="checkbox" checked={!!p.is_default} onChange={()=>setDefault(p.id)} />
+                        <span className="text-xs">تنظیم به عنوان پیش‌فرض</span>
+                      </label>
                     </td>
                   </tr>
                 ))}
