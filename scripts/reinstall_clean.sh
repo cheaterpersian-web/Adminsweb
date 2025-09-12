@@ -107,8 +107,11 @@ compose up -d
 
 log "Waiting for core services to respond"
 wait_for_http "http://localhost:8000/docs" "$WAIT_TIMEOUT" || true
-wait_for_http "http://localhost:3000" "$WAIT_TIMEOUT" || true
-wait_for_http "http://localhost" "$WAIT_TIMEOUT" || true
+wait_for_http "http://localhost" "$WAIT_TIMEOUT" || wait_for_http "http://localhost:3000" "$WAIT_TIMEOUT" || true
+
+# Print login hint
+echo "If backend is up, open http://localhost:8000/docs."
+echo "If behind NGINX, open http://localhost (or your domain)."
 
 log "Done. Frontend: http://localhost:3000  |  Backend: http://localhost:8000  |  NGINX: http://localhost"
 exit 0

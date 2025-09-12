@@ -211,10 +211,13 @@ COMPOSE
   yellow "— راه‌اندازی سرویس‌ها —"
   docker compose -f docker-compose.generated.yml build
   docker compose -f docker-compose.generated.yml up -d
+  # Ensure backend migrations complete for first-run CLI ops
+  docker compose -f docker-compose.generated.yml exec -T backend python -m alembic -c app/../alembic.ini upgrade head || true
 
   green "نصب کامل شد!"
   echo "پنل: https://${DOMAIN}"
   echo "API:  https://${DOMAIN}/api"
+  echo "برای ساخت سودو: ./scripts/create_sudo.sh"
   echo "ادمین: ${ADMIN_EMAIL} | ${ADMIN_PASSWORD}"
 }
 

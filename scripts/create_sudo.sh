@@ -66,11 +66,15 @@ main() {
       COMPOSE+=( -f docker-compose.yml )
     fi
     # Ensure backend is up, otherwise try to run anyway
-    if ! "${COMPOSE[@]}" ps backend >/dev/null 2>&1; then
-      echo "[i] Backend container may not be running. Attempting to execute anyway..."
+    BE_CID=$("${COMPOSE[@]}" ps -q backend || true)
+    if [[ -z "$BE_CID" ]]; then
+      echo "[i] Backend not running. Starting DB and running command transiently..."
+      "${COMPOSE[@]}" up -d postgres >/dev/null 2>&1 || true
+      "${COMPOSE[@]}" run --rm backend sh -lc "python -m alembic -c app/../alembic.ini upgrade head && python -m app.scripts.create_admin --email '$email' --password '$password' --name '$name'"
+    else
+      echo "[i] Creating/updating SUDO admin inside backend container..."
+      "${COMPOSE[@]}" exec backend python -m app.scripts.create_admin --email "$email" --password "$password" --name "$name"
     fi
-    echo "[i] Creating/updating SUDO admin inside backend container..."
-    "${COMPOSE[@]}" exec backend python -m app.scripts.create_admin --email "$email" --password "$password" --name "$name"
     exit 0
   fi
 
