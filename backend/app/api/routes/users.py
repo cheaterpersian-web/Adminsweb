@@ -29,9 +29,12 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
         existing = db.query(User).filter(User.email == payload.email).first()
         if existing:
             raise HTTPException(status_code=400, detail="Email already registered")
+    # Determine stored email (panel form requires email but we allow username fallback)
+    stored_email = payload.email or f"{(payload.username or payload.name).strip()}@local"
+
     user = User(
         name=payload.name,
-        email=payload.email or f"{payload.name}@local",
+        email=stored_email,
         phone=payload.phone,
         role=payload.role,
         is_active=True,
@@ -50,7 +53,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
             if not u:
                 u = f"operator_{user.id}"
             return u[:32]
-        op_username = make_username(user.name)
+        op_username = make_username(payload.username or user.name)
         try:
             with httpx.Client(timeout=15.0, verify=False) as client:
                 for panel in panels:

@@ -12,6 +12,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    username: Optional[str] = None
 
     @field_validator("email")
     def email_optional_for_operator(cls, v, info):
@@ -19,6 +20,14 @@ class UserCreate(UserBase):
         role = info.data.get("role") if hasattr(info, "data") else None
         if v is None and role != "operator":
             raise ValueError("Email is required unless role is operator")
+        return v
+
+    @field_validator("username")
+    def username_required_if_no_email_for_operator(cls, v, info):
+        role = info.data.get("role") if hasattr(info, "data") else None
+        email = info.data.get("email") if hasattr(info, "data") else None
+        if role == "operator" and (not email) and (not v or not str(v).strip()):
+            raise ValueError("Username is required when email is missing for operator")
         return v
 
 

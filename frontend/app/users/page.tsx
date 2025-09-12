@@ -5,7 +5,7 @@ import { Button } from "../../components/ui/button";
 
 export default function UsersPage() {
   const [users, setUsers] = useState<any[]>([]);
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "operator" });
+  const [form, setForm] = useState({ name: "", email: "", username: "", password: "", role: "operator" });
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
 
@@ -22,7 +22,7 @@ export default function UsersPage() {
     setLoading(true);
     try {
       await apiFetch("/users", { method: "POST", body: JSON.stringify(form) });
-      setForm({ name: "", email: "", password: "", role: "operator" });
+      setForm({ name: "", email: "", username: "", password: "", role: "operator" });
       load();
     } finally { setLoading(false); }
   };
@@ -48,7 +48,8 @@ export default function UsersPage() {
       <h1 className="text-2xl font-semibold">Users</h1>
       <form onSubmit={createUser} className="flex flex-wrap gap-2 items-end">
         <input className="border rounded-md h-10 px-3" placeholder="Name" value={form.name} onChange={e=>setForm(v=>({...v,name:e.target.value}))} />
-        <input className="border rounded-md h-10 px-3" placeholder="Email" value={form.email} onChange={e=>setForm(v=>({...v,email:e.target.value}))} />
+        <input className="border rounded-md h-10 px-3" placeholder="Email (optional for operator)" value={form.email} onChange={e=>setForm(v=>({...v,email:e.target.value}))} />
+        <input className="border rounded-md h-10 px-3" placeholder="Username (used if email empty)" value={form.username} onChange={e=>setForm(v=>({...v,username:e.target.value}))} />
         <input className="border rounded-md h-10 px-3" placeholder="Password" type="password" value={form.password} onChange={e=>setForm(v=>({...v,password:e.target.value}))} />
         <select className="border rounded-md h-10 px-3" value={form.role} onChange={e=>setForm(v=>({...v,role:e.target.value}))}>
           <option value="admin">admin</option>
