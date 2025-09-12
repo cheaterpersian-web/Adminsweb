@@ -7,24 +7,34 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.core.auth import require_roles, get_current_user
 from app.core.security import hash_password
+from app.core.config import get_settings
+import httpx
+import re
+from app.models.panel import Panel
+from app.models.user_panel_credentials import UserPanelCredential
 from app.services.audit import record_audit_event
 
 router = APIRouter()
 
 
 @router.get("/users", response_model=List[UserRead])
-def list_users(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+def list_users(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin"]))):
     return db.query(User).order_by(User.id.desc()).all()
 
 
 @router.post("/users", response_model=UserRead)
 def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin"]))):
-    existing = db.query(User).filter(User.email == payload.email).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    # Unique check only if email provided
+    if payload.email:
+        existing = db.query(User).filter(User.email == payload.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+    # Determine stored email (panel form requires email but we allow username fallback)
+    stored_email = payload.email or f"{(payload.username or payload.name).strip()}@local"
+
     user = User(
         name=payload.name,
-        email=payload.email,
+        email=stored_email,
         phone=payload.phone,
         role=payload.role,
         is_active=True,
@@ -34,6 +44,74 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
     db.commit()
     db.refresh(user)
     record_audit_event(db, user_id=current_user.id, action="create_user", target=str(user.id), meta={"email": user.email})
+
+    # If operator, create matching admin on Marzban panel(s)
+    if user.role == "operator":
+        panels = db.query(Panel).order_by(Panel.id.asc()).all()
+        def make_username(base: str) -> str:
+            u = re.sub(r"[^a-zA-Z0-9_]+", "_", base).strip("_")
+            if not u:
+                u = f"operator_{user.id}"
+            return u[:32]
+        op_username = make_username(payload.username or user.name)
+        try:
+            with httpx.Client(timeout=15.0, verify=False) as client:
+                for panel in panels:
+                    try:
+                        login_url = panel.base_url.rstrip("/") + "/api/admin/token"
+                        token = None
+                        # try form first
+                        resp = client.post(login_url, data={"username": panel.username, "password": panel.password})
+                        if resp.headers.get("content-type", "").startswith("application/json"):
+                            jd = resp.json(); token = jd.get("access_token") or jd.get("token")
+                        if not token:
+                            # try json
+                            resp = client.post(login_url, json={"username": panel.username, "password": panel.password})
+                            if resp.headers.get("content-type", "").startswith("application/json"):
+                                jd = resp.json(); token = jd.get("access_token") or jd.get("token")
+                        if not token:
+                            continue
+                        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+                        create_url = panel.base_url.rstrip("/") + "/api/admin"
+                        payload_admin = {
+                            "username": op_username,
+                            "is_sudo": False,
+                            "telegram_id": 0,
+                            "discord_webhook": "",
+                            "users_usage": 0,
+                            "password": payload.password,
+                        }
+                        r = client.post(create_url, json=payload_admin, headers=headers)
+                        if 200 <= r.status_code < 300:
+                            # save/update creds
+                            try:
+                                rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user.id, UserPanelCredential.panel_id == panel.id).first()
+                                if not rec:
+                                    rec = UserPanelCredential(user_id=user.id, panel_id=panel.id, username=op_username, password=payload.password)
+                                else:
+                                    rec.username = op_username; rec.password = payload.password
+                                db.add(rec); db.commit()
+                            except Exception:
+                                db.rollback()
+                        else:
+                            # If already exists, try to update password
+                            try:
+                                upd_url = panel.base_url.rstrip("/") + f"/api/admin/{op_username}"
+                                upd_payload = {"password": payload.password, "is_sudo": False}
+                                ur = client.put(upd_url, json=upd_payload, headers=headers)
+                                if 200 <= ur.status_code < 300:
+                                    rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user.id, UserPanelCredential.panel_id == panel.id).first()
+                                    if not rec:
+                                        rec = UserPanelCredential(user_id=user.id, panel_id=panel.id, username=op_username, password=payload.password)
+                                    else:
+                                        rec.username = op_username; rec.password = payload.password
+                                    db.add(rec); db.commit()
+                            except Exception:
+                                db.rollback()
+                    except Exception:
+                        continue
+        except Exception:
+            pass
     return user
 
 

@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import get_db
+from sqlalchemy.orm import Session
+from app.models.root_admin import RootAdmin
 from app.models.user import User
 
 settings = get_settings()
@@ -45,3 +47,17 @@ def require_roles(allowed_roles: Sequence[str]):
         return user
 
     return dependency
+
+
+def require_root_admin(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+    # Root admin if:
+    # 1) user is admin AND email is in ROOT_ADMIN_EMAILS, OR
+    # 2) user is admin AND exists in root_admins table
+    if user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin only")
+    emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+    is_env_root = user.email.lower() in emails
+    is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == user.id).first() is not None
+    if not (is_env_root or is_db_root):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin only")
+    return user
