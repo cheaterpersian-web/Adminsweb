@@ -70,7 +70,14 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
                             continue
                         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
                         create_url = panel.base_url.rstrip("/") + "/api/admin"
-                        payload_admin = {"username": op_username, "password": payload.password}
+                        payload_admin = {
+                            "username": op_username,
+                            "is_sudo": False,
+                            "telegram_id": 0,
+                            "discord_webhook": "",
+                            "users_usage": 0,
+                            "password": payload.password,
+                        }
                         r = client.post(create_url, json=payload_admin, headers=headers)
                         if 200 <= r.status_code < 300:
                             # save/update creds
@@ -81,6 +88,21 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
                                 else:
                                     rec.username = op_username; rec.password = payload.password
                                 db.add(rec); db.commit()
+                            except Exception:
+                                db.rollback()
+                        else:
+                            # If already exists, try to update password
+                            try:
+                                upd_url = panel.base_url.rstrip("/") + f"/api/admin/{op_username}"
+                                upd_payload = {"password": payload.password, "is_sudo": False}
+                                ur = client.put(upd_url, json=upd_payload, headers=headers)
+                                if 200 <= ur.status_code < 300:
+                                    rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user.id, UserPanelCredential.panel_id == panel.id).first()
+                                    if not rec:
+                                        rec = UserPanelCredential(user_id=user.id, panel_id=panel.id, username=op_username, password=payload.password)
+                                    else:
+                                        rec.username = op_username; rec.password = payload.password
+                                    db.add(rec); db.commit()
                             except Exception:
                                 db.rollback()
                     except Exception:
