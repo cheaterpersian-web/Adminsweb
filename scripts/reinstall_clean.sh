@@ -75,10 +75,20 @@ done
 # Preconditions
 require_cmd docker
 require_cmd curl
-[[ -f "$COMPOSE_FILE_PATH" ]] || fail "Compose file not found: $COMPOSE_FILE_PATH"
+[[ -f "$COMPOSE_FILE_PATH" ]] || echo "[!] Compose file not found at $COMPOSE_FILE_PATH (continuing if generated exists)"
 
-log "Stopping any running stack (remove orphans)"
-compose down --remove-orphans || true
+log "Stopping any running stacks (remove orphans)"
+# Down default compose
+if [[ -f "$COMPOSE_FILE_PATH" ]]; then
+  docker compose -f "$COMPOSE_FILE_PATH" down --remove-orphans || true
+fi
+# Down generated compose if present
+if [[ -f "$ROOT_DIR/docker-compose.generated.yml" ]]; then
+  docker compose -f "$ROOT_DIR/docker-compose.generated.yml" down --remove-orphans || true
+fi
+# Fallback: force stop lingering containers that match project/services
+log "Force-stopping lingering containers (best-effort)"
+docker ps -a --format '{{.ID}}\t{{.Names}}' | awk '/(marzban|admin).*?(backend|frontend|nginx|postgres|redis)/ {print $1}' | xargs -r docker rm -f || true
 
 log "Killing stray containers with project label (best-effort)"
 docker ps -a --filter "label=com.docker.compose.project=${PROJECT_NAME}" -q | xargs -r docker rm -f || true
