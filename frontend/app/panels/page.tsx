@@ -10,6 +10,8 @@ type InboundItem = { id: string; tag?: string; remark?: string };
 type HostItem = { host: string };
 
 export default function PanelsPage() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isRootAdmin, setIsRootAdmin] = useState(false);
   const [panels, setPanels] = useState<Panel[]>([]);
   const [form, setForm] = useState({ name: "", base_url: "", username: "", password: "" });
   const [busy, setBusy] = useState(false);
@@ -33,7 +35,19 @@ export default function PanelsPage() {
       } catch {}
     } catch {}
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const me = await apiFetch("/auth/me");
+        setIsRootAdmin(!!me?.is_root_admin);
+        if (me?.is_root_admin) {
+          await load();
+        }
+      } catch {}
+      setAuthChecked(true);
+    };
+    check();
+  }, []);
 
   const createPanel = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,6 +138,17 @@ export default function PanelsPage() {
       await load();
     } catch {}
   };
+
+  if (!authChecked) return null;
+  if (!isRootAdmin) {
+    return (
+      <main className="p-6">
+        <div className="max-w-xl mx-auto text-center border rounded-md p-6 bg-yellow-500/10 border-yellow-500/30 text-yellow-700">
+          دسترسی غیرمجاز: شما اجازه ورود به این صفحه را ندارید.
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="space-y-6">

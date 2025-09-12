@@ -4,6 +4,8 @@ import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 
 export default function UsersPage() {
+  const [authChecked, setAuthChecked] = useState(false);
+  const [isRootAdmin, setIsRootAdmin] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", email: "", username: "", password: "", role: "operator" });
   const [loading, setLoading] = useState(false);
@@ -15,7 +17,19 @@ export default function UsersPage() {
       setUsers(data);
     } catch {}
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const me = await apiFetch("/auth/me");
+        setIsRootAdmin(!!me?.is_root_admin);
+        if (me?.is_root_admin) {
+          await load();
+        }
+      } catch {}
+      setAuthChecked(true);
+    };
+    check();
+  }, []);
 
   const createUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,6 +56,17 @@ export default function UsersPage() {
       load();
     } finally { setSavingId(null); }
   };
+
+  if (!authChecked) return null;
+  if (!isRootAdmin) {
+    return (
+      <main className="p-6">
+        <div className="max-w-xl mx-auto text-center border rounded-md p-6 bg-yellow-500/10 border-yellow-500/30 text-yellow-700">
+          دسترسی غیرمجاز: شما اجازه ورود به این صفحه را ندارید.
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="p-6 space-y-4">
