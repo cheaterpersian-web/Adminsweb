@@ -45,7 +45,7 @@ export default function Topbar() {
           <Link href="/dashboard" className="font-semibold">Marzban Admin</Link>
           <nav className="hidden md:flex items-center gap-5 text-sm text-muted-foreground">
             <Link href="/dashboard" className="hover:text-foreground">Dashboard</Link>
-            <Link href="/users" className="hover:text-foreground">Users</Link>
+            {isRootAdmin && <Link href="/users" className="hover:text-foreground">Users</Link>}
             <Link href="/configs" className="hover:text-foreground">Configs</Link>
             <Link href="/audit" className="hover:text-foreground">Audit</Link>
             {isRootAdmin && <Link href="/panels" className="hover:text-foreground">Panels</Link>}
@@ -59,7 +59,7 @@ export default function Topbar() {
         <div className="md:hidden border-t bg-background">
           <nav className="mx-auto max-w-6xl px-4 py-2 flex flex-col gap-2 text-sm">
             <Link href="/dashboard" onClick={()=>setOpen(false)}>Dashboard</Link>
-            <Link href="/users" onClick={()=>setOpen(false)}>Users</Link>
+            {isRootAdmin && <Link href="/users" onClick={()=>setOpen(false)}>Users</Link>}
             <Link href="/configs" onClick={()=>setOpen(false)}>Configs</Link>
             <Link href="/audit" onClick={()=>setOpen(false)}>Audit</Link>
             {isRootAdmin && <Link href="/panels" onClick={()=>setOpen(false)}>Panels</Link>}

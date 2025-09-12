@@ -50,6 +50,34 @@ def list_panels(db: Session = Depends(get_db), _: User = Depends(require_root_ad
     return panels
 
 
+@router.get("/panels/my", response_model=List[PanelRead])
+def list_my_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Root admin: all panels
+    try:
+      from app.core.config import get_settings
+      from app.models.root_admin import RootAdmin
+      settings = get_settings()
+      emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+      is_env_root = current_user.email.lower() in emails
+      is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == current_user.id).first() is not None
+      if current_user.role == "admin" and (is_env_root or is_db_root):
+          return db.query(Panel).order_by(Panel.id.desc()).all()
+    except Exception:
+      pass
+    # Operator: panels with stored credentials
+    if current_user.role == "operator":
+        panels = (
+            db.query(Panel)
+            .join(UserPanelCredential, UserPanelCredential.panel_id == Panel.id)
+            .filter(UserPanelCredential.user_id == current_user.id)
+            .order_by(Panel.id.desc())
+            .all()
+        )
+        return panels
+    # Others: none
+    return []
+
+
 @router.post("/panels", response_model=PanelRead)
 def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     if db.query(Panel).filter(Panel.name == payload.name).first():
