@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio - Nexus Digital Solutions</title>
+    <meta name="description" content="Explore our portfolio of successful digital projects including web development, UI/UX design, and mobile applications.">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-logo">
+                <a href="index.html"><h2>Nexus</h2></a>
+            </div>
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="index.html" class="nav-link">Home</a>
+                </li>
+                <li class="nav-item">
+                    <a href="about.html" class="nav-link">About</a>
+                </li>
+                <li class="nav-item">
+                    <a href="services.html" class="nav-link">Services</a>
+                </li>
+                <li class="nav-item">
+                    <a href="portfolio.html" class="nav-link active">Portfolio</a>
+                </li>
+                <li class="nav-item">
+                    <a href="contact.html" class="nav-link">Contact</a>
+                </li>
+            </ul>
+            <div class="nav-toggle">
+                <span class="bar"></span>
+                <span class="bar"></span>
+                <span class="bar"></span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Page Header -->
+    <section class="page-header">
+        <div class="container">
+            <div class="page-header-content">
+                <h1>Our Portfolio</h1>
+                <p>Discover our latest projects and see how we've helped businesses transform their digital presence.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Portfolio Filter -->
+    <section class="portfolio-filter">
+        <div class="container">
+            <div class="filter-buttons">
+                <button class="filter-btn active" data-filter="all">All Projects</button>
+                <button class="filter-btn" data-filter="web">Web Development</button>
+                <button class="filter-btn" data-filter="design">UI/UX Design</button>
+                <button class="filter-btn" data-filter="mobile">Mobile Apps</button>
+                <button class="filter-btn" data-filter="ecommerce">E-commerce</button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Portfolio Grid -->
+    <section class="portfolio-main">
+        <div class="container">
+            <div class="portfolio-grid">
+                <div class="portfolio-item" data-category="web ecommerce">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-shopping-cart"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>E-commerce Platform</h4>
+                            <p>Modern online store with advanced features and seamless user experience</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">React</span>
+                                <span class="tag">Node.js</span>
+                                <span class="tag">MongoDB</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>TechStore Pro</h3>
+                        <p>E-commerce Platform</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2024</span>
+                            <span><i class="fas fa-clock"></i> 8 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="design web">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-building"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Corporate Website</h4>
+                            <p>Professional business website with modern design and responsive layout</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">WordPress</span>
+                                <span class="tag">Custom Theme</span>
+                                <span class="tag">SEO</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>Global Finance Corp</h3>
+                        <p>Corporate Website</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2024</span>
+                            <span><i class="fas fa-clock"></i> 6 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="mobile">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-mobile-alt"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Fitness App</h4>
+                            <p>Mobile application for tracking workouts and nutrition with social features</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">React Native</span>
+                                <span class="tag">Firebase</span>
+                                <span class="tag">iOS/Android</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>FitTracker</h3>
+                        <p>Mobile App</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2023</span>
+                            <span><i class="fas fa-clock"></i> 12 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="design web">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-utensils"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Restaurant Website</h4>
+                            <p>Beautiful restaurant website with online ordering and reservation system</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">Vue.js</span>
+                                <span class="tag">Laravel</span>
+                                <span class="tag">MySQL</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>Bella Vista Restaurant</h3>
+                        <p>Restaurant Website</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2023</span>
+                            <span><i class="fas fa-clock"></i> 5 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="ecommerce web">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-tshirt"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Fashion E-commerce</h4>
+                            <p>High-end fashion e-commerce platform with advanced filtering and customization</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">Shopify Plus</span>
+                                <span class="tag">Custom Development</span>
+                                <span class="tag">Payment Gateway</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>Luxe Fashion</h3>
+                        <p>E-commerce Platform</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2023</span>
+                            <span><i class="fas fa-clock"></i> 10 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="design web">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-graduation-cap"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Educational Platform</h4>
+                            <p>Online learning platform with course management and student tracking</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">Angular</span>
+                                <span class="tag">Django</span>
+                                <span class="tag">PostgreSQL</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>EduLearn Pro</h3>
+                        <p>Educational Platform</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2023</span>
+                            <span><i class="fas fa-clock"></i> 16 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="mobile">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-car"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Ride Sharing App</h4>
+                            <p>Mobile application for ride sharing with real-time tracking and payment integration</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">Flutter</span>
+                                <span class="tag">Google Maps API</span>
+                                <span class="tag">Stripe</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>QuickRide</h3>
+                        <p>Mobile App</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2023</span>
+                            <span><i class="fas fa-clock"></i> 14 weeks</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="portfolio-item" data-category="web design">
+                    <div class="portfolio-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-paint-brush"></i>
+                        </div>
+                        <div class="portfolio-overlay">
+                            <h4>Creative Agency</h4>
+                            <p>Portfolio website for creative agency with stunning visuals and smooth animations</p>
+                            <div class="portfolio-tags">
+                                <span class="tag">GSAP</span>
+                                <span class="tag">Three.js</span>
+                                <span class="tag">WebGL</span>
+                            </div>
+                            <a href="#" class="btn btn-small">View Project</a>
+                        </div>
+                    </div>
+                    <div class="portfolio-info">
+                        <h3>Creative Studio</h3>
+                        <p>Agency Website</p>
+                        <div class="portfolio-stats">
+                            <span><i class="fas fa-calendar"></i> 2023</span>
+                            <span><i class="fas fa-clock"></i> 7 weeks</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Case Studies Section -->
+    <section class="case-studies">
+        <div class="container">
+            <div class="section-header">
+                <h2>Featured Case Studies</h2>
+                <p>In-depth look at some of our most successful projects</p>
+            </div>
+            <div class="case-studies-grid">
+                <div class="case-study">
+                    <div class="case-study-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-chart-line"></i>
+                        </div>
+                    </div>
+                    <div class="case-study-content">
+                        <h3>TechStore Pro - E-commerce Transformation</h3>
+                        <p>How we helped a traditional retailer increase online sales by 300% with a modern e-commerce platform.</p>
+                        <div class="case-study-stats">
+                            <div class="stat">
+                                <span class="stat-number">300%</span>
+                                <span class="stat-label">Increase in Sales</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-number">45%</span>
+                                <span class="stat-label">Faster Load Time</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-number">85%</span>
+                                <span class="stat-label">Mobile Traffic</span>
+                            </div>
+                        </div>
+                        <a href="#" class="btn btn-secondary">Read Full Case Study</a>
+                    </div>
+                </div>
+                <div class="case-study">
+                    <div class="case-study-image">
+                        <div class="image-placeholder">
+                            <i class="fas fa-users"></i>
+                        </div>
+                    </div>
+                    <div class="case-study-content">
+                        <h3>FitTracker - Mobile App Success</h3>
+                        <p>Building a fitness app that gained 100K+ downloads in the first month with exceptional user engagement.</p>
+                        <div class="case-study-stats">
+                            <div class="stat">
+                                <span class="stat-number">100K+</span>
+                                <span class="stat-label">Downloads</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-number">4.8</span>
+                                <span class="stat-label">App Store Rating</span>
+                            </div>
+                            <div class="stat">
+                                <span class="stat-number">70%</span>
+                                <span class="stat-label">Daily Active Users</span>
+                            </div>
+                        </div>
+                        <a href="#" class="btn btn-secondary">Read Full Case Study</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section class="testimonials">
+        <div class="container">
+            <div class="section-header">
+                <h2>What Our Clients Say</h2>
+                <p>Hear from the businesses we've helped transform their digital presence</p>
+            </div>
+            <div class="testimonials-grid">
+                <div class="testimonial">
+                    <div class="testimonial-content">
+                        <p>"Nexus transformed our online presence completely. The new website not only looks amazing but has significantly increased our conversion rates. Highly recommended!"</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="author-info">
+                            <h4>Sarah Johnson</h4>
+                            <span>CEO, TechStore Pro</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial">
+                    <div class="testimonial-content">
+                        <p>"Working with Nexus was a game-changer for our business. Their attention to detail and understanding of our needs exceeded all expectations."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="author-info">
+                            <h4>Michael Chen</h4>
+                            <span>Founder, FitTracker</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="testimonial">
+                    <div class="testimonial-content">
+                        <p>"The team at Nexus delivered exactly what we needed and more. Professional, creative, and results-driven. We couldn't be happier with the outcome."</p>
+                    </div>
+                    <div class="testimonial-author">
+                        <div class="author-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="author-info">
+                            <h4>Emily Rodriguez</h4>
+                            <span>Marketing Director, Luxe Fashion</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta">
+        <div class="container">
+            <div class="cta-content">
+                <h2>Ready to Start Your Project?</h2>
+                <p>Let's create something amazing together. Get in touch to discuss your project and see how we can help bring your vision to life.</p>
+                <div class="cta-buttons">
+                    <a href="contact.html" class="btn btn-primary">Start Your Project</a>
+                    <a href="services.html" class="btn btn-secondary">View Our Services</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h3>Nexus</h3>
+                    <p>Creating exceptional digital experiences that drive business growth and user engagement.</p>
+                    <div class="social-links">
+                        <a href="#"><i class="fab fa-facebook"></i></a>
+                        <a href="#"><i class="fab fa-twitter"></i></a>
+                        <a href="#"><i class="fab fa-linkedin"></i></a>
+                        <a href="#"><i class="fab fa-instagram"></i></a>
+                    </div>
+                </div>
+                <div class="footer-section">
+                    <h4>Services</h4>
+                    <ul>
+                        <li><a href="services.html">Web Development</a></li>
+                        <li><a href="services.html">UI/UX Design</a></li>
+                        <li><a href="services.html">SEO Optimization</a></li>
+                        <li><a href="services.html">Digital Marketing</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Company</h4>
+                    <ul>
+                        <li><a href="about.html">About Us</a></li>
+                        <li><a href="about.html">Our Team</a></li>
+                        <li><a href="#">Careers</a></li>
+                        <li><a href="contact.html">Contact</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>Resources</h4>
+                    <ul>
+                        <li><a href="#">Blog</a></li>
+                        <li><a href="portfolio.html">Case Studies</a></li>
+                        <li><a href="portfolio.html">Portfolio</a></li>
+                        <li><a href="#">FAQ</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2024 Nexus. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
