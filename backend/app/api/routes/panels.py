@@ -279,6 +279,60 @@ async def list_hosts(panel_id: int, db: Session = Depends(get_db), _: User = Dep
         return PanelHostsResponse(items=items)
 
 
+class PanelUserListItem(BaseModel):
+    username: str
+    status: Optional[str] = None
+    data_limit: Optional[int] = None
+    expire: Optional[int] = None
+    subscription_url: Optional[str] = None
+
+
+class PanelUsersResponse(BaseModel):
+    items: list[PanelUserListItem]
+
+
+@router.get("/panels/{panel_id}/users", response_model=PanelUsersResponse)
+async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        r = await client.get(panel.base_url.rstrip("/") + "/api/users", headers=headers)
+        if not r.headers.get("content-type", "").startswith("application/json"):
+            raise HTTPException(status_code=502, detail="Unexpected response")
+        data = r.json()
+        items: list[PanelUserListItem] = []
+        if isinstance(data, list):
+            src = data
+        elif isinstance(data, dict) and isinstance(data.get("items"), list):
+            src = data["items"]
+        else:
+            src = []
+        for it in src:
+            if not isinstance(it, dict):
+                continue
+            items.append(PanelUserListItem(
+                username=str(it.get("username") or it.get("name") or ""),
+                status=it.get("status"),
+                data_limit=it.get("data_limit"),
+                expire=it.get("expire"),
+                subscription_url=_canonicalize_subscription_url(panel.base_url, it.get("subscription_url") or it.get("subscription") or None),
+            ))
+        return PanelUsersResponse(items=items)
+
+
 class PanelInboundSelectRequest(BaseModel):
     inbound_ids: list[str]
 
@@ -343,11 +397,19 @@ class PanelUserInfoResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/user/{username}/info", response_model=PanelUserInfoResponse)
-async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
-    token = await _login_get_token(panel.base_url, panel.username, panel.password)
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
     headers = {"Authorization": f"Bearer {token}"}

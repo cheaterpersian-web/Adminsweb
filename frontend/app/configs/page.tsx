@@ -53,6 +53,18 @@ export default function ConfigsPage() {
 
   const loadCreated = async () => {
     try {
+      const pid = parseInt(panelId, 10);
+      if (pid) {
+        // Prefer live list from panel for operators (and also valid for sudo)
+        try {
+          const live = await apiFetch(`/panels/${pid}/users`);
+          const items = live.items || [];
+          setCreated(items.map((it:any, idx:number)=> ({ id: idx+1, panel_id: pid, username: it.username, created_at: new Date().toISOString(), subscription_url: it.subscription_url })));
+          if (items.length) { void loadInfoForRows(items.map((it:any, idx:number)=> ({ id: idx+1, panel_id: pid, username: it.username }))); }
+          return;
+        } catch {}
+      }
+      // Fallback to local created list (for sudo historical view)
       const res = await apiFetch(`/panels/created`);
       const items = res.items || [];
       setCreated(items);
@@ -215,8 +227,9 @@ export default function ConfigsPage() {
               </tbody>
             </table>
           </div>
-          <div className="mt-3">
+          <div className="mt-3 flex items-center gap-2">
             <Button type="button" variant="outline" onClick={loadCreated}>بروزرسانی</Button>
+            <span className="text-xs text-muted-foreground">برای اپراتور، لیست زنده از پنل خوانده می‌شود</span>
           </div>
         </CardContent>
       </Card>
