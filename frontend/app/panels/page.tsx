@@ -49,18 +49,29 @@ export default function PanelsPage() {
     check();
   }, []);
 
+  const normalizeUrl = (u: string) => {
+    const v = (u || "").trim();
+    if (!v) return v;
+    if (!/^https?:\/\//i.test(v)) return `https://${v}`;
+    return v;
+  };
+
   const createPanel = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setTestMsg(null);
     try {
-      const p = await apiFetch("/panels", { method: "POST", body: JSON.stringify(form) });
+      const payload = { ...form, base_url: normalizeUrl(form.base_url) };
+      const p = await apiFetch("/panels", { method: "POST", body: JSON.stringify(payload) });
       setForm({ name: "", base_url: "", username: "", password: "" });
       await load();
       if (p && p.id) {
         setSelectedPanelId(String(p.id));
         await loadInbounds(p.id);
       }
+      setTestMsg("پنل با موفقیت ذخیره شد");
+    } catch (err: any) {
+      setTestMsg(err?.message || "خطا در ذخیره پنل");
     } finally { setBusy(false); }
   };
 
@@ -68,14 +79,14 @@ export default function PanelsPage() {
     setBusy(true);
     setTestMsg(null);
     try {
-      const res = await apiFetch("/panels/test", { method: "POST", body: JSON.stringify({ base_url: form.base_url, username: form.username, password: form.password }) });
+      const res = await apiFetch("/panels/test", { method: "POST", body: JSON.stringify({ base_url: normalizeUrl(form.base_url), username: form.username, password: form.password }) });
       if (res.ok) {
         setTestMsg(`اتصال موفق (${res.endpoint}), token: ${res.token_preview || "..."}`);
       } else {
         setTestMsg(`عدم موفقیت (${res.status || "?"}) ${res.error || ""}`);
       }
     } catch (e:any) {
-      setTestMsg(e.message || "خطا در اتصال");
+      setTestMsg(e?.message || "خطا در اتصال");
     } finally { setBusy(false); }
   };
 
