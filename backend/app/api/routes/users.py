@@ -9,8 +9,10 @@ from app.core.auth import require_roles, get_current_user
 from app.core.security import hash_password
 from app.core.config import get_settings
 import httpx
-from app.services.audit import record_audit_event
+import re
+from app.models.panel import Panel
 from app.models.user_panel_credentials import UserPanelCredential
+from app.services.audit import record_audit_event
 
 router = APIRouter()
 
@@ -40,44 +42,51 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), current_user
     db.refresh(user)
     record_audit_event(db, user_id=current_user.id, action="create_user", target=str(user.id), meta={"email": user.email})
 
-    # If operator, create matching admin on Marzban panel (first configured panel)
+    # If operator, create matching admin on Marzban panel(s)
     if user.role == "operator":
-        settings = get_settings()
-        # pick first panel
-        from app.models.panel import Panel
-        panel = db.query(Panel).order_by(Panel.id.asc()).first()
-        if panel:
-            async def create_admin_on_panel():
-                async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
-                    # login root admin configured in panel record
+        panels = db.query(Panel).order_by(Panel.id.asc()).all()
+        def make_username(base: str) -> str:
+            u = re.sub(r"[^a-zA-Z0-9_]+", "_", base).strip("_")
+            if not u:
+                u = f"operator_{user.id}"
+            return u[:32]
+        op_username = make_username(user.name)
+        try:
+            with httpx.Client(timeout=15.0, verify=False) as client:
+                for panel in panels:
                     try:
-                        tok_res = await client.post(panel.base_url.rstrip("/") + "/api/admin/token", data={"username": panel.username, "password": panel.password})
+                        login_url = panel.base_url.rstrip("/") + "/api/admin/token"
                         token = None
-                        if tok_res.headers.get("content-type", "").startswith("application/json"):
-                            jd = tok_res.json(); token = jd.get("access_token") or jd.get("token")
+                        # try form first
+                        resp = client.post(login_url, data={"username": panel.username, "password": panel.password})
+                        if resp.headers.get("content-type", "").startswith("application/json"):
+                            jd = resp.json(); token = jd.get("access_token") or jd.get("token")
                         if not token:
-                            return
+                            # try json
+                            resp = client.post(login_url, json={"username": panel.username, "password": panel.password})
+                            if resp.headers.get("content-type", "").startswith("application/json"):
+                                jd = resp.json(); token = jd.get("access_token") or jd.get("token")
+                        if not token:
+                            continue
                         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-                        # create admin
-                        payload_admin = {"username": user.name, "password": payload.password}
-                        await client.post(panel.base_url.rstrip("/") + "/api/admin", json=payload_admin, headers=headers)
-                        # save operator's panel creds
-                        try:
-                            rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user.id, UserPanelCredential.panel_id == panel.id).first()
-                            if not rec:
-                                rec = UserPanelCredential(user_id=user.id, panel_id=panel.id, username=user.name, password=payload.password)
-                            else:
-                                rec.username = user.name; rec.password = payload.password
-                            db.add(rec); db.commit()
-                        except Exception:
-                            db.rollback()
+                        create_url = panel.base_url.rstrip("/") + "/api/admin"
+                        payload_admin = {"username": op_username, "password": payload.password}
+                        r = client.post(create_url, json=payload_admin, headers=headers)
+                        if 200 <= r.status_code < 300:
+                            # save/update creds
+                            try:
+                                rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user.id, UserPanelCredential.panel_id == panel.id).first()
+                                if not rec:
+                                    rec = UserPanelCredential(user_id=user.id, panel_id=panel.id, username=op_username, password=payload.password)
+                                else:
+                                    rec.username = op_username; rec.password = payload.password
+                                db.add(rec); db.commit()
+                            except Exception:
+                                db.rollback()
                     except Exception:
-                        return
-            try:
-                import asyncio
-                asyncio.create_task(create_admin_on_panel())
-            except Exception:
-                pass
+                        continue
+        except Exception:
+            pass
     return user
 
 
