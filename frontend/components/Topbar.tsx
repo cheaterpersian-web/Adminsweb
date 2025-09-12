@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getAccessToken, decodeJwt } from "../lib/auth";
+import { getAccessToken } from "../lib/auth";
 import { Button } from "./ui/button";
 
 export default function Topbar() {
@@ -12,17 +12,19 @@ export default function Topbar() {
   const [isRootAdmin, setIsRootAdmin] = useState(false);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) return;
-    const payload = decodeJwt<any>(token);
-    // Backend embeds only sub/type; we infer root from role via server endpoints usually.
-    // For client-only gating, hide Panels unless role is admin and email in ROOT list.
-    // As we don't have email in JWT, we conservatively show Panels only to admin per local flag stored at login (optional enhancement).
-    // Fallback: call a lightweight endpoint if added. For now, show Panels link only to admins flagged in localStorage.
-    try {
-      const flag = localStorage.getItem("is_root_admin") === "true";
-      setIsRootAdmin(flag);
-    } catch {}
+    const load = async () => {
+      const token = getAccessToken();
+      if (!token) return;
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+        const res = await fetch(`${base}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const me = await res.json();
+          setIsRootAdmin(!!me?.is_root_admin);
+        }
+      } catch {}
+    };
+    load();
   }, []);
   const logout = () => {
     if (typeof window !== "undefined") {
