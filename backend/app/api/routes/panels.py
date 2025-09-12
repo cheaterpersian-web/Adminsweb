@@ -103,13 +103,35 @@ def set_default_panel(panel_id: int, db: Session = Depends(get_db), _: User = De
 
 @router.post("/panels", response_model=PanelRead)
 def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
-    if db.query(Panel).filter(Panel.name == payload.name).first():
-        raise HTTPException(status_code=400, detail="Panel name already exists")
-    panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password)
-    db.add(panel)
-    db.commit()
-    db.refresh(panel)
-    return panel
+    try:
+        # Check if panel name already exists
+        existing_panel = db.query(Panel).filter(Panel.name == payload.name).first()
+        if existing_panel:
+            raise HTTPException(status_code=400, detail="نام پنل قبلاً استفاده شده است")
+        
+        # Create new panel
+        panel = Panel(
+            name=payload.name, 
+            base_url=str(payload.base_url), 
+            username=payload.username, 
+            password=payload.password
+        )
+        db.add(panel)
+        db.commit()
+        db.refresh(panel)
+        return panel
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Log the error and return a user-friendly message
+        print(f"Error creating panel: {e}")
+        db.rollback()
+        raise HTTPException(
+            status_code=500, 
+            detail="خطا در ایجاد پنل. لطفاً اتصال پایگاه داده را بررسی کنید."
+        )
 
 
 @router.put("/panels/{panel_id}", response_model=PanelRead)
