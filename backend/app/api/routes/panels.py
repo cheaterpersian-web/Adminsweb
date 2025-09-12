@@ -13,6 +13,7 @@ from app.models.user_panel_credentials import UserPanelCredential
 from pydantic import BaseModel, AnyHttpUrl
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
+from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 
 
 router = APIRouter()
@@ -106,10 +107,23 @@ def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = 
     if db.query(Panel).filter(Panel.name == payload.name).first():
         raise HTTPException(status_code=400, detail="Panel name already exists")
     panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password)
-    db.add(panel)
-    db.commit()
-    db.refresh(panel)
-    return panel
+    try:
+        db.add(panel)
+        db.commit()
+        db.refresh(panel)
+        return panel
+    except IntegrityError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Duplicate or invalid data")
+    except ProgrammingError as e:
+        db.rollback()
+        msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if "is_default" in msg or "column" in msg and "does not exist" in msg:
+            raise HTTPException(status_code=500, detail="Database schema out of date. Please run migrations (alembic upgrade head) and retry.")
+        raise HTTPException(status_code=500, detail="Database error")
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Database error")
 
 
 @router.put("/panels/{panel_id}", response_model=PanelRead)
