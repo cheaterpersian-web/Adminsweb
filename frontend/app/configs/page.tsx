@@ -22,7 +22,12 @@ export default function ConfigsPage() {
 
   const loadPanels = async () => {
     try {
-      const data = await apiFetch("/panels");
+      // For sudo/root, /panels returns all; for operators, fall back to /panels/my
+      let data: any[] = [];
+      try { data = await apiFetch("/panels"); } catch {}
+      if (!Array.isArray(data) || data.length === 0) {
+        try { data = await apiFetch("/panels/my"); } catch {}
+      }
       setPanels(data);
       if (data.length && !panelId) setPanelId(String(data[0].id));
     } catch {}

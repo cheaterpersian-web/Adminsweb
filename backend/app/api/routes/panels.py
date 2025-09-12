@@ -51,7 +51,7 @@ def list_panels(db: Session = Depends(get_db), _: User = Depends(require_root_ad
 
 
 @router.get("/panels/my", response_model=List[PanelRead])
-def list_my_panels(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+def list_my_panels(db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     # Root admin: all panels
     try:
       from app.core.config import get_settings

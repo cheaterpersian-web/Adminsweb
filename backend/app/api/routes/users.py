@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/users", response_model=List[UserRead])
-def list_users(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+def list_users(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin"]))):
     return db.query(User).order_by(User.id.desc()).all()
 
 
