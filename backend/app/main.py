@@ -1,12 +1,17 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.middleware import SlowAPIMiddleware
 from fastapi.responses import ORJSONResponse
+from fastapi.responses import JSONResponse
+import logging
+import uuid
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
+from app.core.logging import configure_logging
 
 settings = get_settings()
+configure_logging()
 
 app = FastAPI(
     title=settings.project_name,
@@ -43,3 +48,29 @@ app.include_router(ws.router, tags=["ws"])  # path defined inside router
 @app.get("/")
 async def root():
     return {"message": "Marzban Admin Panel API"}
+
+
+@app.middleware("http")
+async def add_trace_and_log_exceptions(request: Request, call_next):
+    """Attach a per-request trace_id and log unhandled exceptions with it.
+
+    In non-production envs, include error detail in response; otherwise a generic message.
+    """
+    trace_id = uuid.uuid4().hex[:12]
+    request.state.trace_id = trace_id
+    logger = logging.getLogger("app")
+    try:
+        response = await call_next(request)
+        # Add trace id header for easier correlation
+        response.headers["X-Trace-Id"] = trace_id
+        return response
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Unhandled error (trace_id=%s) path=%s", trace_id, request.url.path)
+        is_prod = settings.env.lower() in {"prod", "production"}
+        payload = {
+            "detail": "Internal Server Error",
+            "trace_id": trace_id,
+        }
+        if not is_prod:
+            payload["error"] = str(exc)
+        return JSONResponse(status_code=500, content=payload)

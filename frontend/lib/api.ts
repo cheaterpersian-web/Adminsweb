@@ -19,8 +19,10 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
 
   const data = await res.json();
   if (!res.ok) {
+    const traceId = (res.headers.get("x-trace-id") || (data && (data.trace_id || data.traceId))) || undefined;
     const serverMessage = (data && (data.detail || data.message || data.error)) || undefined;
-    throw new Error(serverMessage || `خطا در ارتباط با سرور: ${res.status} ${res.statusText}`);
+    const suffix = traceId ? ` (trace: ${traceId})` : "";
+    throw new Error((serverMessage || `خطا در ارتباط با سرور: ${res.status} ${res.statusText}`) + suffix);
   }
   return data;
 }
