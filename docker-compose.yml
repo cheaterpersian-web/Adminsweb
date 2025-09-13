@@ -35,8 +35,7 @@ services:
     depends_on:
       - postgres
       - redis
-    ports:
-      - "8000:8000"
+    # Do not publish backend port on host; NGINX and other services reach it inside the network
     volumes:
       - backend-data:/data
 
