@@ -71,6 +71,6 @@ async def add_trace_and_log_exceptions(request: Request, call_next):
             "detail": "Internal Server Error",
             "trace_id": trace_id,
         }
-        if not is_prod:
+        if (not is_prod) or settings.expose_errors_public:
             payload["error"] = str(exc)
         return JSONResponse(status_code=500, content=payload)
