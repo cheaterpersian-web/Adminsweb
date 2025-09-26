@@ -29,10 +29,10 @@ main() {
   yellow "— تنظیمات اولیه —"
   read -rp "دامنه پنل (مثال: panel.example.com): " DOMAIN
   DOMAIN=${DOMAIN:-panel.local}
-  read -rp "پورت HTTP روی میزبان [80]: " HTTP_PORT
-  HTTP_PORT=${HTTP_PORT:-80}
-  read -rp "پورت HTTPS روی میزبان [443]: " HTTPS_PORT
-  HTTPS_PORT=${HTTPS_PORT:-443}
+  read -rp "پورت HTTP روی میزبان [8080]: " HTTP_PORT
+  HTTP_PORT=${HTTP_PORT:-8080}
+  read -rp "پورت HTTPS روی میزبان [8443]: " HTTPS_PORT
+  HTTPS_PORT=${HTTPS_PORT:-8443}
 
   read -rp "ایمیل ادمین اولیه [admin@example.com]: " ADMIN_EMAIL
   ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
@@ -42,8 +42,10 @@ main() {
   read -rp "SECRET_KEY (خالی=تولید خودکار): " SECRET_KEY || true
   if [ -z "${SECRET_KEY:-}" ]; then SECRET_KEY=$(openssl rand -hex 32); fi
 
-  local API_BASE="https://${DOMAIN}/api"
-  local CORS_ORIGINS="https://${DOMAIN}"
+  local PORT_SUFFIX=""
+  if [ "${HTTPS_PORT}" != "443" ]; then PORT_SUFFIX=":${HTTPS_PORT}"; fi
+  local API_BASE="https://${DOMAIN}${PORT_SUFFIX}/api"
+  local CORS_ORIGINS="https://${DOMAIN}${PORT_SUFFIX}"
 
   yellow "— SSL —"
   echo "1) استفاده از گواهی موجود (مسیر فایل‌ها را می‌پرسد)"
@@ -71,7 +73,7 @@ main() {
   yellow "— تولید پیکربندی NGINX —"
   cat > deploy/nginx/conf.d/marzban.conf <<NGINX
 server {
-    listen ${HTTP_PORT};
+    listen 80;
     server_name ${DOMAIN};
 
     location /.well-known/acme-challenge/ {
@@ -79,12 +81,12 @@ server {
     }
 
     location / {
-        return 301 https://\$host\$request_uri;
+        return 301 https://${DOMAIN}${PORT_SUFFIX}\$request_uri;
     }
 }
 
 server {
-    listen ${HTTPS_PORT} ssl http2;
+    listen 443 ssl http2;
     server_name ${DOMAIN};
 
     ssl_certificate     /etc/nginx/certs/fullchain.pem;
@@ -213,8 +215,8 @@ COMPOSE
   docker compose -f docker-compose.generated.yml exec -T backend python -m alembic -c app/../alembic.ini upgrade head || true
 
   green "نصب کامل شد!"
-  echo "پنل: https://${DOMAIN}"
-  echo "API:  https://${DOMAIN}/api"
+  echo "پنل: https://${DOMAIN}${PORT_SUFFIX}"
+  echo "API:  https://${DOMAIN}${PORT_SUFFIX}/api"
   echo "ادمین: ${ADMIN_EMAIL} | ${ADMIN_PASSWORD}"
   echo "برای اعمال تغییرات کد بدون حذف دیتابیس: ./scripts/reinstall_preserve_db.sh"
 }
