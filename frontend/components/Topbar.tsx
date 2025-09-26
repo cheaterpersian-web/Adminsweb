@@ -49,6 +49,7 @@ export default function Topbar() {
             <Link href="/configs" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Configs</Link>
             <Link href="/audit" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Audit</Link>
             {isRootAdmin && <Link href="/panels" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Panels</Link>}
+            {isRootAdmin && <Link href="/plans" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Plans</Link>}
           </nav>
         </div>
         <div className="flex items-center gap-2">
@@ -63,6 +64,7 @@ export default function Topbar() {
             <Link href="/configs" className="py-2" onClick={()=>setOpen(false)}>Configs</Link>
             <Link href="/audit" className="py-2" onClick={()=>setOpen(false)}>Audit</Link>
             {isRootAdmin && <Link href="/panels" className="py-2" onClick={()=>setOpen(false)}>Panels</Link>}
+            {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
           </nav>
         </div>
       )}
