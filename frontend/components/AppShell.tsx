@@ -18,7 +18,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       <div className="min-h-screen flex flex-col">
         <Topbar />
         <div className="flex-1">
-          <div className="mx-auto max-w-6xl px-4 py-6">{children}</div>
+          <div className="mx-auto max-w-6xl px-4 py-6 animate-fade">{children}</div>
         </div>
       </div>
     </AuthGuard>
