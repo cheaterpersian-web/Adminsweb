@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/plans", response_model=List[PlanRead])
-def list_plans(db: Session = Depends(get_db), _: Depends = Depends(require_roles(["admin", "operator", "viewer"]))):
+def list_plans(db: Session = Depends(get_db), _: Depends = Depends(require_roles(["admin", "operator"]))):
     return db.query(Plan).order_by(Plan.id.desc()).all()
 
 
