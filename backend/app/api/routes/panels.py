@@ -14,6 +14,7 @@ from pydantic import BaseModel, AnyHttpUrl
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
+from app.models.plan import Plan
 
 
 router = APIRouter()
@@ -118,31 +119,10 @@ def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = 
     except ProgrammingError as e:
         db.rollback()
         msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        if "is_default" in msg or "column" in msg and "does not exist" in msg:
-            raise HTTPException(status_code=500, detail="Database schema out of date. Please run migrations (alembic upgrade head) and retry.")
-        raise HTTPException(status_code=500, detail="Database error")
+        raise HTTPException(status_code=400, detail=msg)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error")
-
-
-@router.put("/panels/{panel_id}", response_model=PanelRead)
-def update_panel(panel_id: int, payload: PanelUpdate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
-    panel = db.query(Panel).filter(Panel.id == panel_id).first()
-    if not panel:
-        raise HTTPException(status_code=404, detail="Panel not found")
-    if payload.name is not None:
-        panel.name = payload.name
-    if payload.base_url is not None:
-        panel.base_url = str(payload.base_url)
-    if payload.username is not None:
-        panel.username = payload.username
-    if payload.password is not None:
-        panel.password = payload.password
-    db.add(panel)
-    db.commit()
-    db.refresh(panel)
-    return panel
 
 
 class PanelTestRequest(BaseModel):
@@ -491,8 +471,7 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
 
 class PanelUserCreateRequest(BaseModel):
     name: str
-    volume_gb: float
-    duration_days: int
+    plan_id: int
 
 
 class PanelUserCreateResponse(BaseModel):
@@ -525,18 +504,21 @@ async def _login_get_token(base_url: str, username: str, password: str) -> Optio
     return None
 
 
-def _build_payload_variants(username: str, bytes_limit: int, expire_at: datetime) -> list[dict]:
+def _build_payload_variants(username: str, bytes_limit: int, expire_at: Optional[datetime]) -> list[dict]:
     # Try multiple payload shapes commonly used
-    expire_days = max(1, int((expire_at - datetime.now(tz=timezone.utc)).total_seconds() // 86400))
-    iso = expire_at.isoformat()
-    return [
-        {"username": username, "data_limit": bytes_limit, "expire": expire_days},
-        {"username": username, "data_limit": bytes_limit, "expire_in_days": expire_days},
-        {"username": username, "data_limit": bytes_limit, "expire_at": iso},
-        {"username": username, "limit": bytes_limit, "expire": expire_days},
-        {"username": username, "quota": bytes_limit, "expire_days": expire_days},
-        {"username": username, "data_limit": bytes_limit},
-    ]
+    variants: list[dict] = []
+    if expire_at is not None:
+        expire_days = max(1, int((expire_at - datetime.now(tz=timezone.utc)).total_seconds() // 86400))
+        iso = expire_at.isoformat()
+        variants.extend([
+            {"username": username, "data_limit": bytes_limit, "expire": expire_days},
+            {"username": username, "data_limit": bytes_limit, "expire_in_days": expire_days},
+            {"username": username, "data_limit": bytes_limit, "expire_at": iso},
+            {"username": username, "limit": bytes_limit, "expire": expire_days},
+            {"username": username, "quota": bytes_limit, "expire_days": expire_days},
+        ])
+    variants.append({"username": username, "data_limit": bytes_limit})
+    return variants
 
 
 async def _extract_subscription_url(base_url: str, data: dict) -> Optional[str]:
@@ -604,10 +586,23 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     if not token:
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
 
-    # Build body according to Marzban Add User spec: use inbounds as { protocol: [tags] }
-    bytes_limit = int(max(0, payload.volume_gb) * (1024 ** 3))
-    expire_at = datetime.now(tz=timezone.utc) + timedelta(days=max(1, payload.duration_days))
-    expire_ts = int(expire_at.timestamp())
+    # Enforce using plan
+    plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    # Data limit bytes (0 for unlimited)
+    if plan.is_data_unlimited:
+        bytes_limit = 0
+    else:
+        bytes_limit = int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
+    # Expiration (None for unlimited)
+    if plan.is_duration_unlimited:
+        expire_at = None
+        expire_ts = None  # type: ignore[assignment]
+    else:
+        days = max(1, int(plan.duration_days or 0))
+        expire_at = datetime.now(tz=timezone.utc) + timedelta(days=days)
+        expire_ts = int(expire_at.timestamp())
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
@@ -645,12 +640,13 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         body = {
             "username": payload.name,
             "status": "active",
-            "expire": expire_ts,
             "data_limit": bytes_limit,
             "data_limit_reset_strategy": "no_reset",
             "proxies": proxies_obj,
             "inbounds": proto_to_tags,
         }
+        if expire_ts is not None:
+            body["expire"] = expire_ts
 
         url = panel.base_url.rstrip("/") + "/api/user"
         try:
@@ -678,22 +674,21 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                             sub_url = udata.get("subscription_url")
                         elif isinstance(udata, dict) and isinstance(udata.get("subscription"), str):
                             sub_url = udata.get("subscription")
-                        if not sub_url:
-                            sub_url = await _extract_subscription_url(panel.base_url, udata)
                 except Exception:
                     pass
-            # Canonicalize to base_url domain
-            sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
-            # persist created user record
-            try:
-                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
-                db.add(rec)
-                db.commit()
-            except Exception:
-                db.rollback()
             return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
         else:
-            return PanelUserCreateResponse(ok=False, error=f"{res.status_code} {res.text[:400]}")
+            # Try alternative payload variants if initial failed (e.g., schema differences)
+            for body2 in _build_payload_variants(username=payload.name, bytes_limit=bytes_limit, expire_at=expire_at):
+                try:
+                    res2 = await client.post(url, json=body2, headers=headers)
+                except Exception:
+                    continue
+                if 200 <= res2.status_code < 300:
+                    data2 = res2.json() if res2.headers.get("content-type", "").startswith("application/json") else {}
+                    sub_url = await _extract_subscription_url(panel.base_url, data2)
+                    return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data2)
+            return PanelUserCreateResponse(ok=False, error=f"Panel responded {res.status_code}", raw=(data if isinstance(data, dict) else {}))
 
 
 class PanelUserDeleteRequest(BaseModel):
