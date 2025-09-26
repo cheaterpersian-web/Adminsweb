@@ -2,7 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_root_admin
+from app.core.auth import require_root_admin, require_roles
 from app.db.session import get_db
 from app.models.plan import Plan
 from app.schemas.plan import PlanCreate, PlanRead, PlanUpdate
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("/plans", response_model=List[PlanRead])
-def list_plans(_: Depends = Depends(require_root_admin), db: Session = Depends(get_db)):
+def list_plans(db: Session = Depends(get_db), _: Depends = Depends(require_roles(["admin", "operator", "viewer"]))):
     return db.query(Plan).order_by(Plan.id.desc()).all()
 
 
