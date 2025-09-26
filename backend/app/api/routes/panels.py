@@ -676,6 +676,15 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                             sub_url = udata.get("subscription")
                 except Exception:
                     pass
+            # Persist created user locally for admin overview
+            try:
+                # Best-effort canonicalize the URL to include panel domain
+                sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
+                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
+                db.add(rec)
+                db.commit()
+            except Exception:
+                db.rollback()
             return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
         else:
             # Try alternative payload variants if initial failed (e.g., schema differences)
@@ -687,6 +696,13 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 if 200 <= res2.status_code < 300:
                     data2 = res2.json() if res2.headers.get("content-type", "").startswith("application/json") else {}
                     sub_url = await _extract_subscription_url(panel.base_url, data2)
+                    try:
+                        sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
+                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
+                        db.add(rec)
+                        db.commit()
+                    except Exception:
+                        db.rollback()
                     return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data2)
             return PanelUserCreateResponse(ok=False, error=f"Panel responded {res.status_code}", raw=(data if isinstance(data, dict) else {}))
 

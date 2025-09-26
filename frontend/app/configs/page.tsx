@@ -164,7 +164,7 @@ export default function ConfigsPage() {
                         } catch {}
                       }}
                     >Copy link</Button>
-                    <span className="truncate">{result.sub}</span>
+                    <span className="truncate">{new URL(result.sub, window.location.origin).href}</span>
                   </div>
                 )}
               </div>
