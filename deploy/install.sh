@@ -215,8 +215,8 @@ COMPOSE
   green "نصب کامل شد!"
   echo "پنل: https://${DOMAIN}"
   echo "API:  https://${DOMAIN}/api"
-  echo "برای ساخت سودو: ./scripts/create_sudo.sh"
   echo "ادمین: ${ADMIN_EMAIL} | ${ADMIN_PASSWORD}"
+  echo "برای اعمال تغییرات کد بدون حذف دیتابیس: ./scripts/reinstall_preserve_db.sh"
 }
 
 main "$@"
