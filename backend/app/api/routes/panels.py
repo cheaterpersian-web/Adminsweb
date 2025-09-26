@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from app.models.plan import Plan
+from app.models.wallet import Wallet, WalletTransaction
 
 
 router = APIRouter()
@@ -590,6 +591,34 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
+    # Deduct wallet for non-root admins
+    try:
+        from app.core.config import get_settings
+        from app.models.root_admin import RootAdmin
+        settings = get_settings()
+        emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+        is_env_root = current_user.email.lower() in emails
+        is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == current_user.id).first() is not None
+        is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
+    except Exception:
+        is_root_admin = False
+    if not is_root_admin:
+        # Ensure wallet exists
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+        if not wallet:
+            wallet = Wallet(user_id=current_user.id, balance=0)
+            db.add(wallet)
+            db.commit()
+            db.refresh(wallet)
+        # Check balance
+        if (wallet.balance or 0) < plan.price:
+            raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+        # Deduct and record tx (pre-deduct to prevent race)
+        wallet.balance = (wallet.balance or 0) - plan.price
+        tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
+        db.add(wallet)
+        db.add(tx)
+        db.commit()
     # Data limit bytes (0 for unlimited)
     if plan.is_data_unlimited:
         bytes_limit = 0

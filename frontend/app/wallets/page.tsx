@@ -1,0 +1,86 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "../../lib/api";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { Button } from "../../components/ui/button";
+
+export default function WalletsAdminPage() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [balances, setBalances] = useState<Record<number, string>>({});
+  const [amountByUser, setAmountByUser] = useState<Record<number, string>>({});
+  const [reasonByUser, setReasonByUser] = useState<Record<number, string>>({});
+
+  const load = async () => {
+    try {
+      const us = await apiFetch("/users");
+      setUsers(us);
+      const map: Record<number, string> = {};
+      for (const u of us) {
+        try { const w = await apiFetch(`/wallet/${u.id}`); map[u.id] = String(w.balance); } catch {}
+      }
+      setBalances(map);
+    } catch {}
+  };
+  useEffect(()=> { load(); }, []);
+
+  const adjust = async (uid: number) => {
+    const amount = amountByUser[uid];
+    const reason = reasonByUser[uid];
+    if (!amount) return;
+    await apiFetch(`/wallet/${uid}/adjust`, { method: "POST", body: JSON.stringify({ amount, reason }) });
+    setAmountByUser(s=> ({ ...s, [uid]: "" }));
+    setReasonByUser(s=> ({ ...s, [uid]: "" }));
+    await load();
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Wallets</h1>
+        <p className="text-sm text-muted-foreground">تنظیم موجودی ادمین‌های غیر اصلی</p>
+      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Users</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-secondary">
+                <tr>
+                  <th className="p-2 text-left">Name</th>
+                  <th className="p-2 text-left">Email</th>
+                  <th className="p-2 text-left">Role</th>
+                  <th className="p-2 text-left">Balance</th>
+                  <th className="p-2 text-left">Adjust</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u:any)=> (
+                  <tr key={u.id} className="border-t">
+                    <td className="p-2">{u.name}</td>
+                    <td className="p-2">{u.email}</td>
+                    <td className="p-2">{u.role}</td>
+                    <td className="p-2">{balances[u.id] ?? "-"}</td>
+                    <td className="p-2">
+                      <div className="flex flex-col sm:flex-row gap-2 items-start">
+                        <input className="h-9 px-3 rounded-md border bg-background w-40" placeholder="Amount" value={amountByUser[u.id] || ""} onChange={e=>setAmountByUser(s=>({ ...s, [u.id]: e.target.value }))} />
+                        <input className="h-9 px-3 rounded-md border bg-background w-64" placeholder="Reason (optional)" value={reasonByUser[u.id] || ""} onChange={e=>setReasonByUser(s=>({ ...s, [u.id]: e.target.value }))} />
+                        <Button size="sm" onClick={()=>adjust(u.id)}>Apply</Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {users.length === 0 && (
+                  <tr><td className="p-3 text-muted-foreground" colSpan={5}>موردی نیست</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
