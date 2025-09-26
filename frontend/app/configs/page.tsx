@@ -10,6 +10,7 @@ export default function ConfigsPage() {
   const [panelId, setPanelId] = useState<string>("");
   const [panels, setPanels] = useState<any[] | null>(null);
   const [plans, setPlans] = useState<any[] | null>(null);
+  const [isRootAdmin, setIsRootAdmin] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
   const [created, setCreated] = useState<any[] | null>(null);
@@ -41,6 +42,15 @@ export default function ConfigsPage() {
     try { const data = await apiFetch("/plans"); setPlans(data); if (data.length && !planId) setPlanId(String(data[0].id)); } catch { setPlans([]); }
   };
   if (plans === null) { void loadPlans(); }
+
+  const loadAuth = async () => {
+    try {
+      const me = await apiFetch("/auth/me");
+      setIsRootAdmin(!!me?.is_root_admin);
+    } catch { setIsRootAdmin(false); }
+  };
+  // Fire once
+  if (!isRootAdmin && typeof window !== "undefined") { void loadAuth(); }
   const loadInfoForRows = async (items: any[]) => {
     try {
       const entries = await Promise.all(items.map(async (r:any) => {
@@ -57,9 +67,17 @@ export default function ConfigsPage() {
 
   const loadCreated = async () => {
     try {
+      // For root admin: always show local created DB list
+      if (isRootAdmin) {
+        const res = await apiFetch(`/panels/created`);
+        const items = res.items || [];
+        setCreated(items);
+        if (items.length) { void loadInfoForRows(items); }
+        return;
+      }
+      // For operator/admin non-root: show live list by selected panel
       const pid = parseInt(panelId, 10);
       if (pid) {
-        // Prefer live list from panel for operators (and also valid for sudo)
         try {
           const live = await apiFetch(`/panels/${pid}/users`);
           const items = live.items || [];
@@ -68,11 +86,7 @@ export default function ConfigsPage() {
           return;
         } catch {}
       }
-      // Fallback to local created list (for sudo historical view)
-      const res = await apiFetch(`/panels/created`);
-      const items = res.items || [];
-      setCreated(items);
-      if (items.length) { void loadInfoForRows(items); }
+      setCreated([]);
     } catch { setCreated([]); }
   };
   if (created === null) { void loadCreated(); }
