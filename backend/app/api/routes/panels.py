@@ -126,6 +126,16 @@ def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = 
         raise HTTPException(status_code=500, detail="Database error")
 
 
+@router.delete("/panels/{panel_id}")
+def delete_panel(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    db.delete(panel)
+    db.commit()
+    return {"ok": True}
+
+
 class PanelTestRequest(BaseModel):
     base_url: AnyHttpUrl
     username: str

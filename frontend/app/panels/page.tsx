@@ -150,6 +150,16 @@ export default function PanelsPage() {
     } catch {}
   };
 
+  const removePanel = async (id: number) => {
+    if (!confirm("پنل حذف شود؟")) return;
+    try {
+      await apiFetch(`/panels/${id}`, { method: "DELETE" });
+      await load();
+    } catch (e:any) {
+      setTestMsg(e?.message || "خطا در حذف پنل");
+    }
+  };
+
   if (!authChecked) return null;
   if (!isRootAdmin) {
     return (
@@ -249,6 +259,7 @@ export default function PanelsPage() {
                   <th className="p-2 text-left hidden md:table-cell">Username</th>
                   <th className="p-2 text-left">Selected Inbounds</th>
                   <th className="p-2 text-left">Default</th>
+                  <th className="p-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -271,7 +282,10 @@ export default function PanelsPage() {
                         <input type="checkbox" checked={!!p.is_default} onChange={()=>setDefault(p.id)} />
                         <span className="text-xs">تنظیم به عنوان پیش‌فرض</span>
                       </label>
-                    </td>
+                  </td>
+                  <td className="p-2">
+                    <Button size="sm" variant="destructive" onClick={()=>removePanel(p.id)}>حذف</Button>
+                  </td>
                   </tr>
                 ))}
                 {panels.length === 0 && (
