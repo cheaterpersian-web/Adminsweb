@@ -209,7 +209,7 @@ volumes:
 COMPOSE
 
   yellow "— راه‌اندازی سرویس‌ها —"
-  docker compose -f docker-compose.generated.yml build
+  COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 docker compose -f docker-compose.generated.yml build --parallel
   docker compose -f docker-compose.generated.yml up -d
   # Ensure backend migrations complete for first-run CLI ops
   docker compose -f docker-compose.generated.yml exec -T backend python -m alembic -c app/../alembic.ini upgrade head || true

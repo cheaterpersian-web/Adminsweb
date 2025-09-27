@@ -64,8 +64,9 @@ remove_non_db_volumes() {
 
 build_and_up() {
   local compose_file="$1"
-  log "Building images (no cache)"
-  compose -f "$compose_file" build --no-cache
+  log "Building images (cached)"
+  # Enable BuildKit and parallel builds for speed
+  COMPOSE_DOCKER_CLI_BUILD=1 DOCKER_BUILDKIT=1 compose -f "$compose_file" build --parallel
   log "Starting services"
   compose -f "$compose_file" up -d
 }
