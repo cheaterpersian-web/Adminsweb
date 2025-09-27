@@ -16,6 +16,7 @@ from urllib.parse import urlparse, urlunparse
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from app.models.plan import Plan
 from app.models.wallet import Wallet, WalletTransaction
+from app.models.template import UserTemplate, Template, TemplateInbound
 
 
 router = APIRouter()
@@ -672,6 +673,23 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             proto = str(it.get("protocol") or "").strip()
             if tag and proto and tag in selected_tags:
                 proto_to_tags.setdefault(proto, []).append(tag)
+
+        # If current user has an assigned template, and template matches this panel, override selection
+        try:
+            ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+            if ut:
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                if tpl and tpl.panel_id == panel_id:
+                    tpl_inbounds = [row.inbound_id for row in db.query(TemplateInbound).filter(TemplateInbound.template_id == tpl.id).all()]
+                    selected_tpl_tags = set(tpl_inbounds)
+                    proto_to_tags = {}
+                    for it in normalized:
+                        tag = str(it.get("tag") or "").strip()
+                        proto = str(it.get("protocol") or "").strip()
+                        if tag and proto and tag in selected_tpl_tags:
+                            proto_to_tags.setdefault(proto, []).append(tag)
+        except Exception:
+            pass
 
         # Proxies object based on selected protocols
         proxies_obj = {proto: {} for proto in proto_to_tags.keys()}

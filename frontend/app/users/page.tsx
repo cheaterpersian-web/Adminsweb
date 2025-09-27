@@ -7,6 +7,7 @@ export default function UsersPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
   const [form, setForm] = useState({ name: "", email: "", username: "", password: "", role: "operator" });
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
@@ -16,6 +17,7 @@ export default function UsersPage() {
       const data = await apiFetch("/users");
       setUsers(data);
     } catch {}
+    try { const t = await apiFetch("/templates"); setTemplates(t); } catch {}
   };
   useEffect(() => {
     const check = async () => {
@@ -93,6 +95,7 @@ export default function UsersPage() {
               <th className="p-2 text-left">Role</th>
               <th className="p-2 text-left">Active</th>
               <th className="p-2 text-left">Actions</th>
+              <th className="p-2 text-left">Template</th>
             </tr>
           </thead>
           <tbody>
@@ -115,6 +118,16 @@ export default function UsersPage() {
                   <Button variant="outline" size="sm" disabled={savingId===u.id} onClick={()=>toggleActive(u.id, u.is_active)}>
                     {u.is_active ? "Disable" : "Enable"}
                   </Button>
+                </td>
+                <td className="p-2">
+                  <select className="border rounded-md h-9 px-2" defaultValue={u.template_id || ""} onChange={async (e)=>{
+                    const tid = parseInt(e.target.value,10);
+                    if (!tid) return;
+                    await apiFetch('/templates/assign', { method: 'POST', body: JSON.stringify({ user_id: u.id, template_id: tid }) });
+                  }}>
+                    <option value="">انتخاب تمپلیت</option>
+                    {templates.map((t:any)=> <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
                 </td>
               </tr>
             ))}
