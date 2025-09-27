@@ -27,6 +27,16 @@ export default function PlansPage() {
   const [price, setPrice] = useState<string>("0");
   const [saving, setSaving] = useState(false);
 
+  // Edit state
+  const [editId, setEditId] = useState<number | null>(null);
+  const [eName, setEName] = useState("");
+  const [eDataQuotaMb, setEDataQuotaMb] = useState<number | "">("");
+  const [eIsDataUnlimited, setEIsDataUnlimited] = useState(false);
+  const [eDurationDays, setEDurationDays] = useState<number | "">("");
+  const [eIsDurationUnlimited, setEIsDurationUnlimited] = useState(false);
+  const [ePrice, setEPrice] = useState<string>("0");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -72,6 +82,39 @@ export default function PlansPage() {
   const remove = async (id: number) => {
     await apiFetch(`/plans/${id}`, { method: "DELETE" });
     await load();
+  };
+
+  const startEdit = (p: Plan) => {
+    setEditId(p.id);
+    setEName(p.name);
+    setEIsDataUnlimited(!!p.is_data_unlimited);
+    setEDataQuotaMb(p.data_quota_mb === null ? "" : Number(p.data_quota_mb));
+    setEIsDurationUnlimited(!!p.is_duration_unlimited);
+    setEDurationDays(p.duration_days === null ? "" : Number(p.duration_days));
+    setEPrice(String(p.price));
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+  };
+
+  const saveEdit = async (id: number) => {
+    setSavingEdit(true);
+    try {
+      const payload: any = {
+        name: eName,
+        is_data_unlimited: eIsDataUnlimited,
+        is_duration_unlimited: eIsDurationUnlimited,
+        price: ePrice,
+      };
+      if (!eIsDataUnlimited) payload.data_quota_mb = eDataQuotaMb === "" ? 0 : Number(eDataQuotaMb);
+      if (!eIsDurationUnlimited) payload.duration_days = eDurationDays === "" ? 0 : Number(eDurationDays);
+      await apiFetch(`/plans/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      await load();
+      setEditId(null);
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   return (
@@ -122,16 +165,55 @@ export default function PlansPage() {
           plans.map((p) => (
             <Card key={p.id}>
               <CardHeader>
-                <CardTitle>{p.name}</CardTitle>
-                <CardDescription>
-                  {p.is_data_unlimited ? "حجم نامحدود" : `${p.data_quota_mb?.toLocaleString()} MB`} · {p.is_duration_unlimited ? "زمان نامحدود" : `${p.duration_days} روز`} · قیمت: {p.price}
-                </CardDescription>
+                {editId === p.id ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm mb-1">نام</label>
+                      <input className="w-full h-10 px-3 rounded-md border bg-background" value={eName} onChange={e=>setEName(e.target.value)} />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">حجم (MB)</label>
+                      <div className="flex gap-2 items-center">
+                        <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={eIsDataUnlimited? "" : (eDataQuotaMb as any)} onChange={e=>setEDataQuotaMb(e.target.value === "" ? "" : Number(e.target.value))} disabled={eIsDataUnlimited} />
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={eIsDataUnlimited} onChange={e=>setEIsDataUnlimited(e.target.checked)} /> نامحدود</label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">زمان (روز)</label>
+                      <div className="flex gap-2 items-center">
+                        <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={eIsDurationUnlimited? "" : (eDurationDays as any)} onChange={e=>setEDurationDays(e.target.value === "" ? "" : Number(e.target.value))} disabled={eIsDurationUnlimited} />
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={eIsDurationUnlimited} onChange={e=>setEIsDurationUnlimited(e.target.checked)} /> نامحدود</label>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">قیمت</label>
+                      <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={ePrice} onChange={e=>setEPrice(e.target.value)} />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <CardTitle>{p.name}</CardTitle>
+                    <CardDescription>
+                      {p.is_data_unlimited ? "حجم نامحدود" : `${p.data_quota_mb?.toLocaleString()} MB`} · {p.is_duration_unlimited ? "زمان نامحدود" : `${p.duration_days} روز`} · قیمت: {p.price}
+                    </CardDescription>
+                  </>
+                )}
               </CardHeader>
               <CardContent>
                 <div className="text-sm text-muted-foreground">شناسه: {p.id}</div>
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
-                <Button variant="outline" size="sm" onClick={() => remove(p.id)}>حذف</Button>
+                {editId === p.id ? (
+                  <>
+                    <Button variant="outline" size="sm" onClick={cancelEdit} disabled={savingEdit}>انصراف</Button>
+                    <Button size="sm" onClick={() => saveEdit(p.id)} disabled={savingEdit || !eName}>ذخیره</Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="outline" size="sm" onClick={() => startEdit(p)}>ویرایش</Button>
+                    <Button variant="outline" size="sm" onClick={() => remove(p.id)}>حذف</Button>
+                  </>
+                )}
               </CardFooter>
             </Card>
           ))
