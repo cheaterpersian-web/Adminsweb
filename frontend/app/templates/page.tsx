@@ -15,6 +15,10 @@ export default function TemplatesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [form, setForm] = useState<{ name: string; panel_id: string; inbound_ids: string[] }>({ name: "", panel_id: "", inbound_ids: [] });
   const [inbounds, setInbounds] = useState<{ id: string; tag?: string; remark?: string }[] | null>(null);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [eName, setEName] = useState("");
+  const [ePanelId, setEPanelId] = useState<string>("");
+  const [eInbounds, setEInbounds] = useState<string[]>([]);
 
   const load = async () => {
     const p = await apiFetch("/panels"); setPanels(p);
@@ -47,6 +51,36 @@ export default function TemplatesPage() {
 
   const toggleInbound = (id: string) => {
     setForm(s=> ({ ...s, inbound_ids: s.inbound_ids.includes(id) ? s.inbound_ids.filter(x=>x!==id) : [...s.inbound_ids, id] }));
+  };
+
+  const toggleEditInbound = (id: string) => {
+    setEInbounds(s=> (s.includes(id) ? s.filter(x=>x!==id) : [...s, id]));
+  };
+
+  const startEdit = async (t: Template) => {
+    setEditId(t.id);
+    setEName(t.name);
+    setEPanelId(String(t.panel_id));
+    setEInbounds(t.inbound_ids || []);
+    const pid = parseInt(String(t.panel_id), 10);
+    if (pid) await loadInbounds(pid);
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editId) return;
+    const payload: any = { name: eName, panel_id: parseInt(ePanelId, 10), inbound_ids: eInbounds };
+    await apiFetch(`/templates/${editId}`, { method: "PUT", body: JSON.stringify(payload) });
+    setEditId(null);
+    await load();
+  };
+
+  const remove = async (id: number) => {
+    await apiFetch(`/templates/${id}`, { method: "DELETE" });
+    await load();
   };
 
   if (!authChecked) return null;
@@ -108,18 +142,57 @@ export default function TemplatesPage() {
                   <th className="p-2 text-left">Name</th>
                   <th className="p-2 text-left">Panel</th>
                   <th className="p-2 text-left">Inbounds</th>
+                  <th className="p-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {templates.map(t=> (
-                  <tr key={t.id} className="border-t">
+                  <tr key={t.id} className="border-t align-top">
                     <td className="p-2">{t.id}</td>
-                    <td className="p-2">{t.name}</td>
-                    <td className="p-2">{panels.find(p=>p.id===t.panel_id)?.name || t.panel_id}</td>
                     <td className="p-2">
-                      <div className="flex flex-wrap gap-1">
-                        {t.inbound_ids.map(id=> <span key={id} className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs">{id}</span>)}
-                      </div>
+                      {editId === t.id ? (
+                        <input className="border rounded-md h-9 px-2 w-full" value={eName} onChange={e=>setEName(e.target.value)} />
+                      ) : (
+                        t.name
+                      )}
+                    </td>
+                    <td className="p-2">
+                      {editId === t.id ? (
+                        <select className="border rounded-md h-9 px-2 w-full" value={ePanelId} onChange={async (e)=>{ setEPanelId(e.target.value); const v=parseInt(e.target.value,10); if(v) await loadInbounds(v); }}>
+                          {panels.map(p=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
+                        </select>
+                      ) : (
+                        panels.find(p=>p.id===t.panel_id)?.name || t.panel_id
+                      )}
+                    </td>
+                    <td className="p-2">
+                      {editId === t.id ? (
+                        <div className="border rounded-md p-2 max-h-40 overflow-auto w-[320px]">
+                          {(inbounds||[]).map(i=> (
+                            <label key={i.id} className="flex items-center gap-2 py-1">
+                              <input type="checkbox" checked={eInbounds.includes(i.id)} onChange={()=>toggleEditInbound(i.id)} />
+                              <span className="text-sm">{i.tag || i.remark || i.id}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {t.inbound_ids.map(id=> <span key={id} className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs">{id}</span>)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-2">
+                      {editId === t.id ? (
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={cancelEdit}>انصراف</Button>
+                          <Button size="sm" onClick={saveEdit}>ذخیره</Button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={()=>startEdit(t)}>ویرایش</Button>
+                          <Button variant="destructive" size="sm" onClick={()=>remove(t.id)}>حذف</Button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
