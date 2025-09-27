@@ -11,6 +11,7 @@ from app.models.panel_inbound import PanelInbound
 from app.models.panel_created_user import PanelCreatedUser
 from app.models.user_panel_credentials import UserPanelCredential
 from pydantic import BaseModel, AnyHttpUrl
+from typing import Literal
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
@@ -807,4 +808,167 @@ async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, d
         except Exception as e:
             return PanelUserDeleteResponse(ok=False, error=str(e))
 
+
+class PanelUserStatusRequest(BaseModel):
+    status: Literal["active", "disabled"]
+
+
+@router.post("/panels/{panel_id}/user/{username}/status")
+async def set_user_status(panel_id: int, username: str, payload: PanelUserStatusRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = panel.base_url.rstrip("/") + f"/api/user/{username}"
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        try:
+            res = await client.patch(url, json={"status": payload.status}, headers=headers)
+            if 200 <= res.status_code < 300:
+                return {"ok": True}
+            raise HTTPException(status_code=res.status_code, detail=res.text[:200])
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+
+class PanelUserExtendRequest(BaseModel):
+    plan_id: int
+    template_id: Optional[int] = None
+
+
+@router.post("/panels/{panel_id}/user/{username}/extend")
+async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserExtendRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+
+    # Resolve plan and deduct wallet for non-root admins
+    plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    try:
+        from app.core.config import get_settings
+        from app.models.root_admin import RootAdmin
+        settings = get_settings()
+        emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+        is_env_root = current_user.email.lower() in emails
+        is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == current_user.id).first() is not None
+        is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
+    except Exception:
+        is_root_admin = False
+    if not is_root_admin:
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+        if not wallet:
+            wallet = Wallet(user_id=current_user.id, balance=0)
+            db.add(wallet)
+            db.commit()
+            db.refresh(wallet)
+        if (wallet.balance or 0) < plan.price:
+            raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+        wallet.balance = (wallet.balance or 0) - plan.price
+        tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
+        db.add(wallet)
+        db.add(tx)
+        db.commit()
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        # Get current user info to compute new expire
+        current_expire_ts: Optional[int] = None
+        try:
+            info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+            if info.headers.get("content-type", "").startswith("application/json"):
+                udata = info.json()
+                ts = udata.get("expire") if isinstance(udata, dict) else None
+                if isinstance(ts, (int, float)):
+                    current_expire_ts = int(ts)
+        except Exception:
+            current_expire_ts = None
+
+        # Compute target expire
+        if plan.is_duration_unlimited:
+            target_expire_ts = None
+        else:
+            add_days = max(1, int(plan.duration_days or 0))
+            now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+            base_ts = current_expire_ts if (current_expire_ts and current_expire_ts > now_ts) else now_ts
+            target_expire_ts = base_ts + add_days * 86400
+
+        # Optionally enforce template inbounds
+        proxies_obj = None
+        inbounds_obj = None
+        try:
+            if payload.template_id is not None:
+                tpl = db.query(Template).filter(Template.id == payload.template_id).first()
+                if tpl and tpl.panel_id == panel_id:
+                    # Fetch panel inbounds
+                    resp_inb = await client.get(panel.base_url.rstrip("/") + "/api/inbounds", headers=headers)
+                    resp_inb.raise_for_status()
+                    inb_data = resp_inb.json()
+                    normalized: list[dict] = []
+                    if isinstance(inb_data, list):
+                        normalized = [x for x in inb_data if isinstance(x, dict)]
+                    elif isinstance(inb_data, dict):
+                        if isinstance(inb_data.get("items"), list):
+                            normalized = [x for x in inb_data["items"] if isinstance(x, dict)]
+                        else:
+                            for v in inb_data.values():
+                                if isinstance(v, list):
+                                    normalized.extend([x for x in v if isinstance(x, dict)])
+                    tpl_tags = {row.inbound_id for row in db.query(TemplateInbound).filter(TemplateInbound.template_id == tpl.id).all()}
+                    proto_to_tags: dict[str, list[str]] = {}
+                    for it in normalized:
+                        tag = str(it.get("tag") or "").strip()
+                        proto = str(it.get("protocol") or "").strip()
+                        if tag and proto and tag in tpl_tags:
+                            proto_to_tags.setdefault(proto, []).append(tag)
+                    proxies_obj = {proto: {} for proto in proto_to_tags.keys()}
+                    inbounds_obj = proto_to_tags
+        except Exception:
+            proxies_obj = None
+            inbounds_obj = None
+
+        body: dict = {"username": username}
+        if target_expire_ts is not None:
+            body["expire"] = target_expire_ts
+        if proxies_obj is not None and inbounds_obj is not None:
+            body["proxies"] = proxies_obj
+            body["inbounds"] = inbounds_obj
+
+        url = panel.base_url.rstrip("/") + "/api/user"
+        try:
+            # Some panels might require PATCH to specific user endpoint; attempt both
+            res = await client.patch(panel.base_url.rstrip("/") + f"/api/user/{username}", json=body, headers=headers)
+            if not (200 <= res.status_code < 300):
+                res = await client.post(url, json=body, headers=headers)
+            if 200 <= res.status_code < 300:
+                return {"ok": True}
+            raise HTTPException(status_code=res.status_code, detail=res.text[:200])
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
 

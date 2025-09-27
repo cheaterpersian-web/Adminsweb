@@ -201,6 +201,7 @@ export default function ConfigsPage() {
                   <th className="p-2 text-left">Created</th>
                   <th className="p-2 text-left">Subscription</th>
                   <th className="p-2 text-left">Usage</th>
+                  <th className="p-2 text-left">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -238,6 +239,9 @@ export default function ConfigsPage() {
                       ) : (
                         <span className="text-xs text-muted-foreground">Loading…</span>
                       )}
+                    </td>
+                    <td className="p-2">
+                      <RowActions username={r.username} panelId={r.panel_id} onDone={loadCreated} />
                     </td>
                   </tr>
                 ))}
@@ -294,6 +298,59 @@ function DefaultAwarePanelSelect({ panels, panelId, setPanelId }: { panels: any[
       <select className="w-full h-10 px-3 rounded-md border bg-background" value={panelId} onChange={e=>setPanelId(e.target.value)} required>
         {(panels || []).map((p:any)=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}{p.is_default ? " (default)" : ""}</option>)}
       </select>
+    </div>
+  );
+}
+
+function RowActions({ username, panelId, onDone }: { username: string; panelId: number; onDone: ()=>void }) {
+  const [busy, setBusy] = useState(false);
+  const [showExtend, setShowExtend] = useState(false);
+  const [plans, setPlans] = useState<any[] | null>(null);
+  const [templates, setTemplates] = useState<any[] | null>(null);
+  const [planId, setPlanId] = useState<string>("");
+  const [templateId, setTemplateId] = useState<string>("");
+
+  const loadPlans = async () => { try { const d = await apiFetch("/plans"); setPlans(d); if (d.length && !planId) setPlanId(String(d[0].id)); } catch { setPlans([]); } };
+  const loadTemplates = async () => { try { const d = await apiFetch("/templates"); setTemplates(d); if (d.length && !templateId) setTemplateId(String(d[0].id)); } catch { setTemplates([]); } };
+
+  const setStatus = async (status: "active" | "disabled") => {
+    setBusy(true);
+    try {
+      await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/status`, { method: "POST", body: JSON.stringify({ status }) });
+      onDone();
+    } finally { setBusy(false); }
+  };
+
+  const extend = async () => {
+    setBusy(true);
+    try {
+      const body: any = { plan_id: parseInt(planId, 10) };
+      if (templateId) body.template_id = parseInt(templateId, 10);
+      await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
+      setShowExtend(false);
+      onDone();
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="flex flex-col gap-2 min-w-[280px]">
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("active")}>فعال</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("disabled")}>غیرفعال</Button>
+        <Button size="sm" onClick={()=>{ setShowExtend(v=>!v); if (!plans) void loadPlans(); if (!templates) void loadTemplates(); }}>تمدید</Button>
+      </div>
+      {showExtend && (
+        <div className="flex flex-col sm:flex-row gap-2">
+          <select className="h-9 px-2 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)}>
+            {(plans||[]).map((p:any)=> <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select className="h-9 px-2 rounded-md border bg-background" value={templateId} onChange={e=>setTemplateId(e.target.value)}>
+            <option value="">بدون تمپلیت</option>
+            {(templates||[]).map((t:any)=> <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <Button size="sm" onClick={extend} disabled={busy || !planId}>اعمال تمدید</Button>
+        </div>
+      )}
     </div>
   );
 }
