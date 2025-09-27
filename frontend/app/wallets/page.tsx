@@ -10,6 +10,7 @@ export default function WalletsAdminPage() {
   const [balances, setBalances] = useState<Record<number, string>>({});
   const [amountByUser, setAmountByUser] = useState<Record<number, string>>({});
   const [reasonByUser, setReasonByUser] = useState<Record<number, string>>({});
+  const [targetByUser, setTargetByUser] = useState<Record<number, string>>({});
 
   const load = async () => {
     try {
@@ -34,6 +35,16 @@ export default function WalletsAdminPage() {
     await load();
   };
 
+  const setBalance = async (uid: number) => {
+    const target = parseFloat(targetByUser[uid] || "");
+    const current = parseFloat(balances[uid] || "0");
+    if (isNaN(target)) return;
+    const delta = (target - current).toFixed(2);
+    await apiFetch(`/wallet/${uid}/adjust`, { method: "POST", body: JSON.stringify({ amount: delta, reason: "Set balance" }) });
+    setTargetByUser(s=> ({ ...s, [uid]: "" }));
+    await load();
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -54,6 +65,7 @@ export default function WalletsAdminPage() {
                   <th className="p-2 text-left">Role</th>
                   <th className="p-2 text-left">Balance</th>
                   <th className="p-2 text-left">Adjust</th>
+                  <th className="p-2 text-left">Set Balance</th>
                 </tr>
               </thead>
               <tbody>
@@ -70,10 +82,16 @@ export default function WalletsAdminPage() {
                         <Button size="sm" onClick={()=>adjust(u.id)}>Apply</Button>
                       </div>
                     </td>
+                    <td className="p-2">
+                      <div className="flex flex-col sm:flex-row gap-2 items-start">
+                        <input className="h-9 px-3 rounded-md border bg-background w-40" placeholder="Target balance" value={targetByUser[u.id] || ""} onChange={e=>setTargetByUser(s=>({ ...s, [u.id]: e.target.value }))} />
+                        <Button size="sm" onClick={()=>setBalance(u.id)}>Set</Button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {users.length === 0 && (
-                  <tr><td className="p-3 text-muted-foreground" colSpan={5}>موردی نیست</td></tr>
+                  <tr><td className="p-3 text-muted-foreground" colSpan={6}>موردی نیست</td></tr>
                 )}
               </tbody>
             </table>
