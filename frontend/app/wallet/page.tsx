@@ -7,16 +7,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 export default function WalletPage() {
   const [balance, setBalance] = useState<string>("0.00");
   const [txs, setTxs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const load = async () => {
+    setLoading(true);
     try {
-      const w = await apiFetch("/wallet/me");
-      setBalance(String(w.balance));
-    } catch {}
-    try {
-      const t = await apiFetch("/wallet/me/transactions");
-      setTxs(t.items || []);
-    } catch {}
+      const [w, t] = await Promise.all([
+        apiFetch("/wallet/me"),
+        apiFetch("/wallet/me/transactions"),
+      ]);
+      if (w && typeof w.balance !== "undefined") setBalance(String(w.balance));
+      setTxs((t && Array.isArray(t.items)) ? t.items : []);
+    } catch {
+      setTxs([]);
+    } finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
@@ -38,6 +42,7 @@ export default function WalletPage() {
         </CardHeader>
         <CardContent>
           <div className="overflow-auto">
+            {loading && <div className="text-sm text-muted-foreground">در حال بارگذاری…</div>}
             <table className="min-w-full text-sm">
               <thead className="bg-secondary">
                 <tr>
@@ -54,7 +59,7 @@ export default function WalletPage() {
                     <td className="p-2">{new Date(t.created_at).toLocaleString()}</td>
                   </tr>
                 ))}
-                {txs.length === 0 && (
+                {!loading && txs.length === 0 && (
                   <tr><td className="p-3 text-muted-foreground" colSpan={3}>موردی نیست</td></tr>
                 )}
               </tbody>

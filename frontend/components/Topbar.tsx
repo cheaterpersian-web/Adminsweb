@@ -10,6 +10,7 @@ export default function Topbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -25,6 +26,25 @@ export default function Topbar() {
       } catch {}
     };
     load();
+  }, []);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) return;
+    let timer: any;
+    const fetchBalance = async () => {
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+        const res = await fetch(`${base}/wallet/me`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const w = await res.json();
+          if (w && typeof w.balance !== "undefined") setWalletBalance(String(w.balance));
+        }
+      } catch {}
+    };
+    fetchBalance();
+    timer = setInterval(fetchBalance, 30000);
+    return () => { if (timer) clearInterval(timer); };
   }, []);
   const logout = () => {
     if (typeof window !== "undefined") {
@@ -56,6 +76,9 @@ export default function Topbar() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow transition">
+            Wallet: {walletBalance ?? "-"}
+          </Link>
           <Button variant="default" size="sm" onClick={logout}>Logout</Button>
         </div>
       </div>
@@ -69,6 +92,7 @@ export default function Topbar() {
             {isRootAdmin && <Link href="/panels" className="py-2" onClick={()=>setOpen(false)}>Panels</Link>}
             {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="py-2" onClick={()=>setOpen(false)}>Templates</Link>}
+            <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet {walletBalance ? `(${walletBalance})` : ""}</Link>
             {!isRootAdmin && <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet</Link>}
             {isRootAdmin && <Link href="/wallets" className="py-2" onClick={()=>setOpen(false)}>Wallets</Link>}
           </nav>
