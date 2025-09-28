@@ -55,6 +55,24 @@ export default function ConfigsPage() {
   };
   if (plans === null || categories === null) { void loadPlans(); }
 
+  // Fallbacks to ensure defaults are set after data arrives
+  useEffect(() => {
+    try {
+      if (Array.isArray(panels) && panels.length > 0 && !panelId) {
+        const def = (panels as any[]).find((p:any)=> p.is_default);
+        setPanelId(String((def || panels[0]).id));
+      }
+    } catch {}
+  }, [panels]);
+
+  useEffect(() => {
+    try {
+      if (Array.isArray(plans) && plans.length > 0 && !planId) {
+        setPlanId(String(plans[0].id));
+      }
+    } catch {}
+  }, [plans]);
+
   const loadAuth = async () => {
     try {
       const me = await apiFetch("/auth/me");
