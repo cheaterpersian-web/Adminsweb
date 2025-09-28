@@ -1043,7 +1043,18 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             add_days = max(1, int(plan.duration_days or 0))
             target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
 
-        # Build canonical body per Marzban spec
+        # Fetch current user to preserve fields and possibly inbounds/proxies
+        current_body: dict = {}
+        try:
+            u = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+            if u.headers.get("content-type", "").startswith("application/json"):
+                data = u.json()
+                if isinstance(data, dict):
+                    current_body = data
+        except Exception:
+            current_body = {}
+
+        # Build canonical body: reset data_limit/expire by plan; preserve note/inbounds/proxies unless template overrides
         proxies_obj = None
         inbounds_obj = None
         try:
@@ -1081,43 +1092,78 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
         # Data limit RESET based on plan (0 for unlimited)
         bytes_limit = 0 if plan.is_data_unlimited else int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
 
-        body: dict = {
+        body_base: dict = {
             "username": username,
             "data_limit": bytes_limit,
             "data_limit_reset_strategy": "no_reset",
-            "status": "active",
+            "status": current_body.get("status", "active"),
+            "next_plan": {
+                "add_remaining_traffic": False,
+                "data_limit": 0,
+                "expire": 0,
+                "fire_on_either": True,
+            },
+            "note": current_body.get("note", ""),
+            "on_hold_expire_duration": 0,
+            "on_hold_timeout": current_body.get("on_hold_timeout", None),
         }
         if target_expire_ts is not None:
-            body["expire"] = target_expire_ts
+            body_base["expire"] = target_expire_ts
         if proxies_obj is not None and inbounds_obj is not None:
-            body["proxies"] = proxies_obj
-            body["inbounds"] = inbounds_obj
+            body_base["proxies"] = proxies_obj
+            body_base["inbounds"] = inbounds_obj
+        else:
+            body_base["proxies"] = current_body.get("proxies") or {}
+            body_base["inbounds"] = current_body.get("inbounds") or {}
 
-        url = panel.base_url.rstrip("/") + "/api/user"
-        try:
-            # Some panels might require PATCH to specific user endpoint; attempt both
-            res = await client.patch(panel.base_url.rstrip("/") + f"/api/user/{username}", json=body, headers=headers)
-            if not (200 <= res.status_code < 300):
-                res = await client.post(url, json=body, headers=headers)
-            if 200 <= res.status_code < 300:
-                # best-effort reset traffic counters via common endpoints
-                for ep in [
-                    panel.base_url.rstrip("/") + f"/api/user/{username}/reset",
-                    panel.base_url.rstrip("/") + f"/api/user/{username}/reset_traffic",
-                    panel.base_url.rstrip("/") + f"/api/user/{username}/reset-traffic",
-                ]:
+        user_url = panel.base_url.rstrip("/") + f"/api/user/{username}"
+        admin_user_url = panel.base_url.rstrip("/") + f"/api/admin/user/{username}"
+        base_user_url = panel.base_url.rstrip("/") + "/api/user"
+
+        # Try multiple methods/endpoints similar to status change flow
+        attempts: list[tuple[str, str, dict]] = []
+        attempts.append(("PATCH", user_url, body_base))
+        attempts.append(("PATCH", user_url + "/", body_base))
+        attempts.append(("PATCH", admin_user_url, body_base))
+        attempts.append(("PUT", user_url, body_base))
+        attempts.append(("PUT", admin_user_url, body_base))
+        # Some panels update via POST /api/user as upsert
+        attempts.append(("POST", base_user_url, body_base))
+
+        header_variants = [headers, {**headers, "Authorization": f"Token {token}"}]
+        last_status: Optional[int] = None
+        last_text: Optional[str] = None
+        for hdrs in header_variants:
+            for method, target, body_try in attempts:
+                try:
+                    if method == "PATCH":
+                        res = await client.patch(target, json=body_try, headers=hdrs)
+                    elif method == "PUT":
+                        res = await client.put(target, json=body_try, headers=hdrs)
+                    else:
+                        res = await client.post(target, json=body_try, headers=hdrs)
+                except Exception as e:
+                    last_status = 0
+                    last_text = str(e)
+                    continue
+                if 200 <= res.status_code < 300:
+                    # best-effort reset traffic counters via common endpoints
+                    for ep in [
+                        panel.base_url.rstrip("/") + f"/api/user/{username}/reset",
+                        panel.base_url.rstrip("/") + f"/api/user/{username}/reset_traffic",
+                        panel.base_url.rstrip("/") + f"/api/user/{username}/reset-traffic",
+                    ]:
+                        try:
+                            await client.post(ep, headers=hdrs)
+                        except Exception:
+                            pass
                     try:
-                        await client.post(ep, headers=headers)
+                        record_audit_event(db, current_user.id, "extend_config_user", target=username, meta={"panel_id": panel_id, "plan_id": payload.plan_id, "template_id": payload.template_id})
                     except Exception:
                         pass
-                try:
-                    record_audit_event(db, current_user.id, "extend_config_user", target=username, meta={"panel_id": panel_id, "plan_id": payload.plan_id, "template_id": payload.template_id})
-                except Exception:
-                    pass
-                return {"ok": True}
-            raise HTTPException(status_code=res.status_code, detail=res.text[:200])
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=str(e))
+                    return {"ok": True}
+                last_status = res.status_code
+                last_text = res.text[:200]
+
+        raise HTTPException(status_code=last_status or 502, detail=last_text or "Panel extend failed")
 
