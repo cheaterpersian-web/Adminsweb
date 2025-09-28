@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from app.models.plan import Plan
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.template import UserTemplate, Template, TemplateInbound
+from app.services.audit import record_audit_event
 
 
 router = APIRouter()
@@ -743,6 +744,11 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 db.commit()
             except Exception:
                 db.rollback()
+            # Audit log for created user
+            try:
+                record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
+            except Exception:
+                pass
             return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
         else:
             # Try alternative payload variants if initial failed (e.g., schema differences)
@@ -761,6 +767,10 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                         db.commit()
                     except Exception:
                         db.rollback()
+                    try:
+                        record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
+                    except Exception:
+                        pass
                     return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data2)
             return PanelUserCreateResponse(ok=False, error=f"Panel responded {res.status_code}", raw=(data if isinstance(data, dict) else {}))
 
@@ -835,6 +845,10 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
         try:
             res = await client.patch(url, json={"status": payload.status}, headers=headers)
             if 200 <= res.status_code < 300:
+                try:
+                    record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
+                except Exception:
+                    pass
                 return {"ok": True}
             raise HTTPException(status_code=res.status_code, detail=res.text[:200])
         except HTTPException:
@@ -965,6 +979,10 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             if not (200 <= res.status_code < 300):
                 res = await client.post(url, json=body, headers=headers)
             if 200 <= res.status_code < 300:
+                try:
+                    record_audit_event(db, current_user.id, "extend_config_user", target=username, meta={"panel_id": panel_id, "plan_id": payload.plan_id, "template_id": payload.template_id})
+                except Exception:
+                    pass
                 return {"ok": True}
             raise HTTPException(status_code=res.status_code, detail=res.text[:200])
         except HTTPException:
