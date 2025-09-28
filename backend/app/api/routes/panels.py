@@ -843,9 +843,8 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
     url = panel.base_url.rstrip("/") + f"/api/user/{username}"
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
         try:
-            # Fetch current user to decide minimal expire bump when enabling
+            # Fetch current user to preserve existing fields (but do NOT change expire)
             now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-            current_expire_ts: Optional[int] = None
             current_body: dict = {}
             try:
                 u = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
@@ -853,13 +852,10 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
                     data = u.json()
                     if isinstance(data, dict):
                         current_body = data
-                        ts = data.get("expire")
-                        if isinstance(ts, (int, float)):
-                            current_expire_ts = int(ts)
             except Exception:
-                current_expire_ts = None
+                pass
 
-            # Canonical PATCH body (full shape helps some panels apply changes reliably)
+            # Canonical PATCH body (avoid touching expire; only toggle status)
             body_base: dict = {
                 "status": payload.status,
                 "data_limit": current_body.get("data_limit", 0),
@@ -876,14 +872,7 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
                 "on_hold_expire_duration": 0,
                 "on_hold_timeout": current_body.get("on_hold_timeout", None),
             }
-            # expire field depending on desired status
-            if payload.status == "active":
-                if current_expire_ts is None or current_expire_ts <= now_ts:
-                    body_base["expire"] = now_ts + 3600
-                else:
-                    body_base["expire"] = current_expire_ts
-            else:
-                body_base["expire"] = 0
+            # Do not include expire in status toggle requests to avoid changing duration
 
             # Helper to (re)fetch status and confirm
             async def _confirm_status(expected: str) -> bool:
@@ -922,11 +911,10 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
             attempts.append(("PATCH", url, body_active))
             attempts.append(("PATCH", url_slash, body_active))
             attempts.append(("PATCH", admin_url, body_active))
-            # 4) PUT variants
+            # 4) PUT variants (also without expire)
             attempts.append(("PUT", url, body_base))
             attempts.append(("PUT", url_slash, body_base))
             attempts.append(("PUT", admin_url, body_base))
-            attempts.append(("PUT", url, {"status": payload.status, "expire": body_base.get("expire", 0)}))
             # 5) Status endpoints
             attempts.append(("POST", panel.base_url.rstrip("/") + f"/api/user/{username}/status", {"status": payload.status}))
             attempts.append(("PATCH", panel.base_url.rstrip("/") + f"/api/user/{username}/status", {"status": payload.status}))
@@ -952,6 +940,12 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
             else:
                 for ep in action_endpoints_enable:
                     attempts.append(("POST", ep, {}))
+
+            # Last-resort: only if disabling and everything else fails, try forcing expire=0 once
+            if payload.status == "disabled":
+                body_force_expire = dict(body_base)
+                body_force_expire["expire"] = 0
+                attempts.append(("PATCH", url, body_force_expire))
 
             # Try with two header styles: Bearer and Token
             header_variants = [headers, {**headers, "Authorization": f"Token {token}"}]
