@@ -841,20 +841,61 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
         raise HTTPException(status_code=502, detail="Login to panel failed")
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     url = panel.base_url.rstrip("/") + f"/api/user/{username}"
-    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
-        try:
-            res = await client.patch(url, json={"status": payload.status}, headers=headers)
-            if 200 <= res.status_code < 300:
-                try:
-                    record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
-                except Exception:
-                    pass
-                return {"ok": True}
-            raise HTTPException(status_code=res.status_code, detail=res.text[:200])
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(status_code=502, detail=str(e))
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        # Try multiple shapes/endpoints used across Marzban versions/forks
+        try_candidates = []
+        # 1) PATCH status string
+        desired = payload.status
+        alt_disable = ["disabled", "inactive", "on_hold", "limited"]
+        alt_enable = ["active", "enabled"]
+        for v in ([desired] + (alt_disable if desired == "disabled" else alt_enable)):
+            try_candidates.append(("PATCH", url, {"status": v}))
+        # 2) Boolean style
+        if desired == "disabled":
+            try_candidates.append(("PATCH", url, {"enabled": False}))
+            try_candidates.append(("PATCH", url, {"active": False}))
+        else:
+            try_candidates.append(("PATCH", url, {"enabled": True}))
+            try_candidates.append(("PATCH", url, {"active": True}))
+        # 3) Action endpoints
+        action_eps = [
+            f"/api/user/{username}/disable",
+            f"/api/user/{username}/deactivate",
+            f"/api/user/{username}/ban",
+            f"/api/user/{username}/enable",
+            f"/api/user/{username}/activate",
+        ]
+        for ep in action_eps:
+            if ("disable" in ep and desired == "disabled") or ("enable" in ep and desired == "active") or ("activate" in ep and desired == "active") or ("deactivate" in ep and desired == "disabled") or ("ban" in ep and desired == "disabled"):
+                try_candidates.append(("POST", panel.base_url.rstrip("/") + ep, None))
+
+        # 4) Fallback: for disable, expire now; for enable, extend minimal
+        now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+        if desired == "disabled":
+            try_candidates.append(("PATCH", url, {"expire": now_ts - 60}))
+        else:
+            try_candidates.append(("PATCH", url, {"expire": now_ts + 86400}))
+
+        last_status = None
+        for method, ep_url, body in try_candidates:
+            try:
+                if method == "PATCH":
+                    res = await client.patch(ep_url, json=(body or {}), headers=headers)
+                else:
+                    res = await client.post(ep_url, json=(body or {}), headers=headers)
+                last_status = res.status_code
+                if 200 <= res.status_code < 300:
+                    try:
+                        record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
+                    except Exception:
+                        pass
+                    return {"ok": True}
+            except Exception:
+                continue
+
+        if last_status is not None:
+            raise HTTPException(status_code=last_status, detail="Failed to change status on panel")
+        raise HTTPException(status_code=502, detail="Could not reach panel to change status")
 
 
 class PanelUserExtendRequest(BaseModel):
