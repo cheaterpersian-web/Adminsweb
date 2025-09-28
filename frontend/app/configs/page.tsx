@@ -7,6 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 export default function ConfigsPage() {
   const [name, setName] = useState("");
   const [planId, setPlanId] = useState<string>("");
+  const [extendVolumeGb, setExtendVolumeGb] = useState<string>("");
+  const [extendDays, setExtendDays] = useState<string>("");
   const [panelId, setPanelId] = useState<string>("");
   const [panels, setPanels] = useState<any[] | null>(null);
   const [plans, setPlans] = useState<any[] | null>(null);
@@ -280,6 +282,15 @@ export default function ConfigsPage() {
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
+                      {r.subscription_url && (
+                        <a
+                          href={"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(r.subscription_url)}
+                          className="ml-2 text-xs underline"
+                          aria-label="Download QR"
+                          target="_blank"
+                          rel="noreferrer"
+                        >QR</a>
+                      )}
                     </td>
                     <td className="p-2">
                       {userInfo[r.id] ? (
@@ -361,6 +372,8 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
   const [templates, setTemplates] = useState<any[] | null>(null);
   const [planId, setPlanId] = useState<string>("");
   const [templateId, setTemplateId] = useState<string>("");
+  const [volumeGb, setVolumeGb] = useState<string>("");
+  const [days, setDays] = useState<string>("");
 
   const loadPlans = async () => { try { const d = await apiFetch("/plans"); setPlans(d); if (d.length && !planId) setPlanId(String(d[0].id)); } catch { setPlans([]); } };
   const loadTemplates = async () => { try { const d = await apiFetch("/templates"); setTemplates(d); if (d.length && !templateId) setTemplateId(String(d[0].id)); } catch { setTemplates([]); } };
@@ -378,6 +391,8 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
     try {
       const body: any = { plan_id: parseInt(planId, 10) };
       if (templateId) body.template_id = parseInt(templateId, 10);
+      if (volumeGb) body.volume_gb = parseFloat(volumeGb);
+      if (days) body.duration_days = parseInt(days, 10);
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
       setShowExtend(false);
       onDone();
@@ -400,6 +415,8 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
             <option value="">بدون تمپلیت</option>
             {(templates||[]).map((t:any)=> <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
+          <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="حجم GB" value={volumeGb} onChange={e=>setVolumeGb(e.target.value)} />
+          <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="روز" value={days} onChange={e=>setDays(e.target.value)} />
           <Button size="sm" onClick={extend} disabled={busy || !planId}>اعمال تمدید</Button>
         </div>
       )}

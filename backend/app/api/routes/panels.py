@@ -860,6 +860,8 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
 class PanelUserExtendRequest(BaseModel):
     plan_id: int
     template_id: Optional[int] = None
+    volume_gb: Optional[float] = None
+    duration_days: Optional[int] = None
 
 
 @router.post("/panels/{panel_id}/user/{username}/extend")
@@ -910,26 +912,16 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
-        # Get current user info to compute new expire
-        current_expire_ts: Optional[int] = None
-        try:
-            info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
-            if info.headers.get("content-type", "").startswith("application/json"):
-                udata = info.json()
-                ts = udata.get("expire") if isinstance(udata, dict) else None
-                if isinstance(ts, (int, float)):
-                    current_expire_ts = int(ts)
-        except Exception:
-            current_expire_ts = None
-
-        # Compute target expire
-        if plan.is_duration_unlimited:
-            target_expire_ts = None
+        # Compute target expire RESET (base on now, not additive)
+        if payload.duration_days is not None:
+            add_days = max(1, int(payload.duration_days))
+            target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
         else:
-            add_days = max(1, int(plan.duration_days or 0))
-            now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-            base_ts = current_expire_ts if (current_expire_ts and current_expire_ts > now_ts) else now_ts
-            target_expire_ts = base_ts + add_days * 86400
+            if plan.is_duration_unlimited:
+                target_expire_ts = None
+            else:
+                add_days = max(1, int(plan.duration_days or 0))
+                target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
 
         # Optionally enforce template inbounds
         proxies_obj = None
@@ -965,7 +957,13 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             proxies_obj = None
             inbounds_obj = None
 
-        body: dict = {"username": username}
+        # Data limit RESET: prefer operator-provided volume_gb, else plan value (0 for unlimited)
+        if payload.volume_gb is not None:
+            bytes_limit = int(max(0.0, float(payload.volume_gb)) * (1024 ** 3))
+        else:
+            bytes_limit = 0 if plan.is_data_unlimited else int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
+
+        body: dict = {"username": username, "data_limit": bytes_limit}
         if target_expire_ts is not None:
             body["expire"] = target_expire_ts
         if proxies_obj is not None and inbounds_obj is not None:
@@ -979,6 +977,16 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             if not (200 <= res.status_code < 300):
                 res = await client.post(url, json=body, headers=headers)
             if 200 <= res.status_code < 300:
+                # best-effort reset traffic counters via common endpoints
+                for ep in [
+                    panel.base_url.rstrip("/") + f"/api/user/{username}/reset",
+                    panel.base_url.rstrip("/") + f"/api/user/{username}/reset_traffic",
+                    panel.base_url.rstrip("/") + f"/api/user/{username}/reset-traffic",
+                ]:
+                    try:
+                        await client.post(ep, headers=headers)
+                    except Exception:
+                        pass
                 try:
                     record_audit_event(db, current_user.id, "extend_config_user", target=username, meta={"panel_id": panel_id, "plan_id": payload.plan_id, "template_id": payload.template_id})
                 except Exception:
