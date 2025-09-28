@@ -179,20 +179,20 @@ export default function ConfigsPage() {
             <div className="space-y-1">
               <label className="text-sm">پلن</label>
               <select className="w-full h-10 px-3 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)} required>
-                {/* گروه «بدون دسته» */}
+                {/* Uncategorised group */}
                 {(() => {
                   const uncategorized = (plans||[]).filter((p:any)=> !p.category_id);
                   return uncategorized.length ? (
-                    <optgroup key="uncat" label="(بدون دسته)">
+                    <optgroup key="uncat" label="(none)">
                       {uncategorized.map((p:any)=> (
                         <option key={p.id} value={p.id}>
-                          {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
+                          {p.name} — {p.is_data_unlimited ? "Unlimited volume" : `${Math.round((Number(p.data_quota_mb || 0) / 1024)).toLocaleString()} GB`} · {p.is_duration_unlimited ? "Unlimited" : `${p.duration_days} day`} · Price: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
                         </option>
                       ))}
                     </optgroup>
                   ) : null;
                 })()}
-                {/* گروه‌های دسته‌بندی شده */}
+                {/* Categorised groups */}
                 {(categories||[]).map((c:any)=> {
                   const items = (plans||[]).filter((p:any)=> p.category_id === c.id);
                   if (!items.length) return null;
@@ -200,7 +200,7 @@ export default function ConfigsPage() {
                     <optgroup key={c.id} label={c.name}>
                       {items.map((p:any)=> (
                         <option key={p.id} value={p.id}>
-                          {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
+                          {p.name} — {p.is_data_unlimited ? "Unlimited volume" : `${Math.round((Number(p.data_quota_mb || 0) / 1024)).toLocaleString()} GB`} · {p.is_duration_unlimited ? "Unlimited" : `${p.duration_days} day`} · Price: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
                         </option>
                       ))}
                     </optgroup>
