@@ -843,8 +843,25 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
     url = panel.base_url.rstrip("/") + f"/api/user/{username}"
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
         try:
-            # Canonical Marzban API: PATCH /api/user/{username} with status
-            body = {"status": payload.status}
+            # Fetch current user to decide minimal expire bump when enabling
+            now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+            current_expire_ts: Optional[int] = None
+            try:
+                u = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+                if u.headers.get("content-type", "").startswith("application/json"):
+                    data = u.json()
+                    ts = data.get("expire") if isinstance(data, dict) else None
+                    if isinstance(ts, (int, float)):
+                        current_expire_ts = int(ts)
+            except Exception:
+                current_expire_ts = None
+
+            # Canonical PATCH body
+            body: dict = {"status": payload.status}
+            if payload.status == "active":
+                # If user expired, set minimal future expire so activation takes effect visibly
+                if current_expire_ts is None or current_expire_ts <= now_ts:
+                    body["expire"] = now_ts + 3600  # 1 hour
             res = await client.patch(url, json=body, headers=headers)
             if 200 <= res.status_code < 300:
                 try:
