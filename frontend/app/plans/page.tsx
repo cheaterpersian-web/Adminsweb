@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
-import { formatToman } from "../../lib/utils";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
+import { formatToman } from "../../lib/utils";
 
 type Plan = {
   id: number;
@@ -23,7 +23,7 @@ export default function PlansPage() {
   const [loading, setLoading] = useState(true);
 
   const [name, setName] = useState("");
-  const [dataQuotaMb, setDataQuotaMb] = useState<number | "">("");
+  const [dataQuotaGb, setDataQuotaGb] = useState<number | "">("");
   const [isDataUnlimited, setIsDataUnlimited] = useState(false);
   const [durationDays, setDurationDays] = useState<number | "">("");
   const [isDurationUnlimited, setIsDurationUnlimited] = useState(false);
@@ -33,7 +33,7 @@ export default function PlansPage() {
   // Edit state
   const [editId, setEditId] = useState<number | null>(null);
   const [eName, setEName] = useState("");
-  const [eDataQuotaMb, setEDataQuotaMb] = useState<number | "">("");
+  const [eDataQuotaGb, setEDataQuotaGb] = useState<number | "">("");
   const [eIsDataUnlimited, setEIsDataUnlimited] = useState(false);
   const [eDurationDays, setEDurationDays] = useState<number | "">("");
   const [eIsDurationUnlimited, setEIsDurationUnlimited] = useState(false);
@@ -69,7 +69,7 @@ export default function PlansPage() {
 
   const resetForm = () => {
     setName("");
-    setDataQuotaMb("");
+    setDataQuotaGb("");
     setIsDataUnlimited(false);
     setDurationDays("");
     setIsDurationUnlimited(false);
@@ -87,7 +87,7 @@ export default function PlansPage() {
         category_id: categoryId ? parseInt(categoryId, 10) : null,
         sort_order: parseInt(sort || "0", 10),
       };
-      if (!isDataUnlimited) payload.data_quota_mb = dataQuotaMb === "" ? 0 : Number(dataQuotaMb);
+      if (!isDataUnlimited) payload.data_quota_mb = dataQuotaGb === "" ? 0 : Math.round(Number(dataQuotaGb) * 1024);
       if (!isDurationUnlimited) payload.duration_days = durationDays === "" ? 0 : Number(durationDays);
       await apiFetch("/plans", { method: "POST", body: JSON.stringify(payload) });
       await load();
@@ -106,7 +106,7 @@ export default function PlansPage() {
     setEditId(p.id);
     setEName(p.name);
     setEIsDataUnlimited(!!p.is_data_unlimited);
-    setEDataQuotaMb(p.data_quota_mb === null ? "" : Number(p.data_quota_mb));
+    setEDataQuotaGb(p.data_quota_mb === null ? "" : Number((Number(p.data_quota_mb) / 1024).toFixed(2)));
     setEIsDurationUnlimited(!!p.is_duration_unlimited);
     setEDurationDays(p.duration_days === null ? "" : Number(p.duration_days));
     setEPrice(String(p.price));
@@ -129,7 +129,7 @@ export default function PlansPage() {
         category_id: eCategoryId ? parseInt(eCategoryId, 10) : null,
         sort_order: parseInt(eSort || "0", 10),
       };
-      if (!eIsDataUnlimited) payload.data_quota_mb = eDataQuotaMb === "" ? 0 : Number(eDataQuotaMb);
+      if (!eIsDataUnlimited) payload.data_quota_mb = eDataQuotaGb === "" ? 0 : Math.round(Number(eDataQuotaGb) * 1024);
       if (!eIsDurationUnlimited) payload.duration_days = eDurationDays === "" ? 0 : Number(eDurationDays);
       await apiFetch(`/plans/${id}`, { method: "PUT", body: JSON.stringify(payload) });
       await load();
@@ -143,80 +143,79 @@ export default function PlansPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Plans</h1>
-        <p className="text-sm text-muted-foreground">مدیریت پلن‌ها (فقط ادمین روت)</p>
+        <p className="text-sm text-muted-foreground">Manage plans (root admin only)</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>ساخت پلن جدید</CardTitle>
-          <CardDescription>نام، حجم، زمان و قیمت را مشخص کنید. برای نامحدود، گزینه‌های مربوطه را فعال کنید.</CardDescription>
+          <CardTitle>Create new plan</CardTitle>
+          <CardDescription>Set name, volume, duration and price. Use unlimited options if needed.</CardDescription>
         </CardHeader>
         <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm mb-1">نام</label>
-            <input className="w-full h-10 px-3 rounded-md border bg-background" value={name} onChange={e=>setName(e.target.value)} placeholder="مثال: طلایی 30 روزه" />
+            <label className="block text-sm mb-1">Name</label>
+            <input className="w-full h-10 px-3 rounded-md border bg-background" value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. Gold 30d" />
           </div>
           <div>
-            <label className="block text-sm mb-1">دسته</label>
+            <label className="block text-sm mb-1">Category</label>
             <select className="w-full h-10 px-3 rounded-md border bg-background" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>
-              <option value="">(بدون دسته)</option>
+              <option value="">(none)</option>
               {categories.map((c:any)=> <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
             <div className="mt-2 flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={()=>setShowNewCat(v=>!v)}>افزودن دسته</Button>
+              <Button type="button" variant="outline" size="sm" onClick={()=>setShowNewCat(v=>!v)}>Add category</Button>
             </div>
             {showNewCat && (
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
-                <input className="h-9 px-3 rounded-md border bg-background" placeholder="نام دسته" value={newCatName} onChange={e=>setNewCatName(e.target.value)} />
-                <input className="h-9 px-3 rounded-md border bg-background" type="number" placeholder="ترتیب" value={newCatSort} onChange={e=>setNewCatSort(e.target.value)} />
+                <input className="h-9 px-3 rounded-md border bg-background" placeholder="Category name" value={newCatName} onChange={e=>setNewCatName(e.target.value)} />
+                <input className="h-9 px-3 rounded-md border bg-background" type="number" placeholder="Order" value={newCatSort} onChange={e=>setNewCatSort(e.target.value)} />
                 <div className="md:col-span-2">
                   <Button type="button" size="sm" disabled={creatingCat || !newCatName.trim()} onClick={async()=>{
                     setCreatingCat(true);
                     try {
                       const payload = { name: newCatName.trim(), sort_order: parseInt(newCatSort || "0", 10) } as any;
                       const created = await apiFetch("/plan-categories", { method: "POST", body: JSON.stringify(payload) });
-                      // reload categories
                       try { const cats = await apiFetch("/plan-categories"); setCategories(cats||[]); } catch {}
                       if (created && created.id) setCategoryId(String(created.id));
                       setShowNewCat(false);
                       setNewCatName(""); setNewCatSort("0");
                     } finally { setCreatingCat(false); }
-                  }}>ثبت دسته</Button>
+                  }}>Save category</Button>
                 </div>
               </div>
             )}
           </div>
           <div>
-            <label className="block text-sm mb-1">ترتیب</label>
+            <label className="block text-sm mb-1">Order</label>
             <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" value={sort} onChange={e=>setSort(e.target.value)} />
           </div>
           <div>
-            <label className="block text-sm mb-1">حجم (MB)</label>
+            <label className="block text-sm mb-1">Volume (GB)</label>
             <div className="flex gap-2 items-center">
-              <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={isDataUnlimited? "" : (dataQuotaMb as any)} onChange={e=>setDataQuotaMb(e.target.value === "" ? "" : Number(e.target.value))} disabled={isDataUnlimited} placeholder="مثال: 102400" />
-              <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={isDataUnlimited} onChange={e=>setIsDataUnlimited(e.target.checked)} /> نامحدود</label>
+              <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={isDataUnlimited? "" : (dataQuotaGb as any)} onChange={e=>setDataQuotaGb(e.target.value === "" ? "" : Number(e.target.value))} disabled={isDataUnlimited} placeholder="e.g. 100" />
+              <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={isDataUnlimited} onChange={e=>setIsDataUnlimited(e.target.checked)} /> Unlimited</label>
             </div>
           </div>
           <div>
-            <label className="block text-sm mb-1">زمان (روز)</label>
+            <label className="block text-sm mb-1">Duration (day)</label>
             <div className="flex gap-2 items-center">
-              <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={isDurationUnlimited? "" : (durationDays as any)} onChange={e=>setDurationDays(e.target.value === "" ? "" : Number(e.target.value))} disabled={isDurationUnlimited} placeholder="مثال: 30" />
-              <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={isDurationUnlimited} onChange={e=>setIsDurationUnlimited(e.target.checked)} /> نامحدود</label>
+              <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={isDurationUnlimited? "" : (durationDays as any)} onChange={e=>setDurationDays(e.target.value === "" ? "" : Number(e.target.value))} disabled={isDurationUnlimited} placeholder="e.g. 30" />
+              <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={isDurationUnlimited} onChange={e=>setIsDurationUnlimited(e.target.checked)} /> Unlimited</label>
             </div>
           </div>
           <div>
-            <label className="block text-sm mb-1">قیمت</label>
-            <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={price} onChange={e=>setPrice(e.target.value)} placeholder="مثال: 199000 (T)" />
+            <label className="block text-sm mb-1">Price</label>
+            <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={price} onChange={e=>setPrice(e.target.value)} placeholder="e.g. 199000 (T)" />
           </div>
         </CardContent>
         <CardFooter>
-          <Button onClick={create} disabled={saving || !name}>ایجاد پلن</Button>
+          <Button onClick={create} disabled={saving || !name}>Create</Button>
         </CardFooter>
       </Card>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {loading ? (
-          <div className="text-sm text-muted-foreground">در حال بارگذاری...</div>
+          <div className="text-sm text-muted-foreground">Loading…</div>
         ) : (
           plans.map((p) => (
             <Card key={p.id}>
@@ -224,36 +223,36 @@ export default function PlansPage() {
                 {editId === p.id ? (
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm mb-1">نام</label>
+                      <label className="block text-sm mb-1">Name</label>
                       <input className="w-full h-10 px-3 rounded-md border bg-background" value={eName} onChange={e=>setEName(e.target.value)} />
                     </div>
                     <div>
-                      <label className="block text-sm mb-1">حجم (MB)</label>
+                      <label className="block text-sm mb-1">Volume (GB)</label>
                       <div className="flex gap-2 items-center">
-                        <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={eIsDataUnlimited? "" : (eDataQuotaMb as any)} onChange={e=>setEDataQuotaMb(e.target.value === "" ? "" : Number(e.target.value))} disabled={eIsDataUnlimited} />
-                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={eIsDataUnlimited} onChange={e=>setEIsDataUnlimited(e.target.checked)} /> نامحدود</label>
+                        <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={eIsDataUnlimited? "" : (eDataQuotaGb as any)} onChange={e=>setEDataQuotaGb(e.target.value === "" ? "" : Number(e.target.value))} disabled={eIsDataUnlimited} />
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={eIsDataUnlimited} onChange={e=>setEIsDataUnlimited(e.target.checked)} /> Unlimited</label>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm mb-1">زمان (روز)</label>
+                      <label className="block text-sm mb-1">Duration (day)</label>
                       <div className="flex gap-2 items-center">
                         <input className="w-full h-10 px-3 rounded-md border bg-background disabled:opacity-50" type="number" min={0} value={eIsDurationUnlimited? "" : (eDurationDays as any)} onChange={e=>setEDurationDays(e.target.value === "" ? "" : Number(e.target.value))} disabled={eIsDurationUnlimited} />
-                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={eIsDurationUnlimited} onChange={e=>setEIsDurationUnlimited(e.target.checked)} /> نامحدود</label>
+                        <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={eIsDurationUnlimited} onChange={e=>setEIsDurationUnlimited(e.target.checked)} /> Unlimited</label>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm mb-1">قیمت</label>
-                      <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={ePrice} onChange={e=>setEPrice(e.target.value)} placeholder="قیمت (T)" />
+                      <label className="block text-sm mb-1">Price</label>
+                      <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={ePrice} onChange={e=>setEPrice(e.target.value)} placeholder="Price (T)" />
                     </div>
                     <div>
-                      <label className="block text-sm mb-1">دسته</label>
+                      <label className="block text-sm mb-1">Category</label>
                       <select className="w-full h-10 px-3 rounded-md border bg-background" value={eCategoryId} onChange={e=>setECategoryId(e.target.value)}>
-                        <option value="">(بدون دسته)</option>
+                        <option value="">(none)</option>
                         {categories.map((c:any)=> <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-sm mb-1">ترتیب</label>
+                      <label className="block text-sm mb-1">Order</label>
                       <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" value={eSort} onChange={e=>setESort(e.target.value)} />
                     </div>
                   </div>
@@ -261,24 +260,24 @@ export default function PlansPage() {
                   <>
                     <CardTitle>{p.name}</CardTitle>
                     <CardDescription>
-                      {p.is_data_unlimited ? "حجم نامحدود" : `${p.data_quota_mb?.toLocaleString()} MB`} · {p.is_duration_unlimited ? "زمان نامحدود" : `${p.duration_days} روز`} · قیمت: {formatToman(p.price)}
+                      {p.is_data_unlimited ? "Unlimited volume" : `${Number((Number(p.data_quota_mb || 0) / 1024).toFixed(0)).toLocaleString()} GB`} · {p.is_duration_unlimited ? "Unlimited duration" : `${p.duration_days} day`} · Price: {formatToman(p.price)}
                     </CardDescription>
                   </>
                 )}
               </CardHeader>
               <CardContent>
-                <div className="text-sm text-muted-foreground">شناسه: {p.id}</div>
+                <div className="text-sm text-muted-foreground">ID: {p.id}</div>
               </CardContent>
               <CardFooter className="flex justify-end gap-2">
                 {editId === p.id ? (
                   <>
-                    <Button variant="outline" size="sm" onClick={cancelEdit} disabled={savingEdit}>انصراف</Button>
-                    <Button size="sm" onClick={() => saveEdit(p.id)} disabled={savingEdit || !eName}>ذخیره</Button>
+                    <Button variant="outline" size="sm" onClick={cancelEdit} disabled={savingEdit}>Cancel</Button>
+                    <Button size="sm" onClick={() => saveEdit(p.id)} disabled={savingEdit || !eName}>Save</Button>
                   </>
                 ) : (
                   <>
-                    <Button variant="outline" size="sm" onClick={() => startEdit(p)}>ویرایش</Button>
-                    <Button variant="outline" size="sm" onClick={() => remove(p.id)}>حذف</Button>
+                    <Button variant="outline" size="sm" onClick={() => startEdit(p)}>Edit</Button>
+                    <Button variant="outline" size="sm" onClick={() => remove(p.id)}>Delete</Button>
                   </>
                 )}
               </CardFooter>
