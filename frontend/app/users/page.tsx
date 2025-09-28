@@ -15,7 +15,14 @@ export default function UsersPage() {
   const load = async () => {
     try {
       const data = await apiFetch("/users");
-      setUsers(data);
+      // fetch assigned templates per user
+      const withTpl = await Promise.all((data||[]).map(async (u:any)=>{
+        try {
+          const a = await apiFetch(`/templates/assigned/${u.id}`);
+          return { ...u, template_id: a?.template_id ?? u.template_id };
+        } catch { return u; }
+      }));
+      setUsers(withTpl);
     } catch {}
     try { const t = await apiFetch("/templates"); setTemplates(t); } catch {}
   };
@@ -120,10 +127,12 @@ export default function UsersPage() {
                   </Button>
                 </td>
                 <td className="p-2">
-                  <select className="border rounded-md h-9 px-2" defaultValue={u.template_id || ""} onChange={async (e)=>{
+                  <select className="border rounded-md h-9 px-2" value={u.template_id || ""} onChange={async (e)=>{
                     const tid = parseInt(e.target.value,10);
                     if (!tid) return;
                     await apiFetch('/templates/assign', { method: 'POST', body: JSON.stringify({ user_id: u.id, template_id: tid }) });
+                    // reflect in UI
+                    setUsers(list => list.map(x => x.id === u.id ? { ...x, template_id: tid } : x));
                   }}>
                     <option value="">انتخاب تمپلیت</option>
                     {templates.map((t:any)=> <option key={t.id} value={t.id}>{t.name}</option>)}

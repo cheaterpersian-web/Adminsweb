@@ -78,3 +78,10 @@ def assign_template(payload: AssignTemplateRequest, db: Session = Depends(get_db
     db.commit()
     return {"ok": True}
 
+
+@router.get("/templates/assigned/{user_id}")
+def get_assigned_template(user_id: int, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin)):
+    rec = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).first()
+    return {"template_id": rec.template_id if rec else None}
+
+
