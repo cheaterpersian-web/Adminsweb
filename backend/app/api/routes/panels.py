@@ -856,12 +856,32 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
             except Exception:
                 current_expire_ts = None
 
-            # Canonical PATCH body
-            body: dict = {"status": payload.status}
+            # Canonical PATCH body (full shape helps some panels apply changes reliably)
+            body: dict = {
+                "status": payload.status,
+                "data_limit": 0,
+                "data_limit_reset_strategy": "no_reset",
+                "inbounds": current_body.get("inbounds") or {},
+                "proxies": current_body.get("proxies") or {},
+                "next_plan": {
+                    "add_remaining_traffic": False,
+                    "data_limit": 0,
+                    "expire": 0,
+                    "fire_on_either": True,
+                },
+                "note": current_body.get("note", ""),
+                "on_hold_expire_duration": 0,
+                "on_hold_timeout": current_body.get("on_hold_timeout", None),
+            }
             if payload.status == "active":
                 # If user expired, set minimal future expire so activation takes effect visibly
                 if current_expire_ts is None or current_expire_ts <= now_ts:
                     body["expire"] = now_ts + 3600  # 1 hour
+                else:
+                    body["expire"] = current_expire_ts
+            else:
+                # disabled -> expire now
+                body["expire"] = 0
             res = await client.patch(url, json=body, headers=headers)
             if 200 <= res.status_code < 300:
                 try:
