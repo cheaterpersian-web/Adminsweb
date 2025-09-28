@@ -14,6 +14,8 @@ type Plan = {
   duration_days: number | null;
   is_duration_unlimited: boolean;
   price: string;
+  category_id?: number | null;
+  sort_order?: number;
 };
 
 export default function PlansPage() {
@@ -37,12 +39,21 @@ export default function PlansPage() {
   const [eIsDurationUnlimited, setEIsDurationUnlimited] = useState(false);
   const [ePrice, setEPrice] = useState<string>("0");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [categoryId, setCategoryId] = useState<string>("");
+  const [sort, setSort] = useState<string>("0");
+  const [eCategoryId, setECategoryId] = useState<string>("");
+  const [eSort, setESort] = useState<string>("0");
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await apiFetch("/plans");
-      setPlans(data);
+      const [cats, data] = await Promise.all([
+        apiFetch("/plan-categories"),
+        apiFetch("/plans"),
+      ]);
+      setCategories(cats || []);
+      setPlans(data || []);
     } finally {
       setLoading(false);
     }
@@ -69,6 +80,8 @@ export default function PlansPage() {
         is_data_unlimited: isDataUnlimited,
         is_duration_unlimited: isDurationUnlimited,
         price,
+        category_id: categoryId ? parseInt(categoryId, 10) : null,
+        sort_order: parseInt(sort || "0", 10),
       };
       if (!isDataUnlimited) payload.data_quota_mb = dataQuotaMb === "" ? 0 : Number(dataQuotaMb);
       if (!isDurationUnlimited) payload.duration_days = durationDays === "" ? 0 : Number(durationDays);
@@ -93,6 +106,8 @@ export default function PlansPage() {
     setEIsDurationUnlimited(!!p.is_duration_unlimited);
     setEDurationDays(p.duration_days === null ? "" : Number(p.duration_days));
     setEPrice(String(p.price));
+    setECategoryId(String(p.category_id || ""));
+    setESort(String(p.sort_order || 0));
   };
 
   const cancelEdit = () => {
@@ -107,6 +122,8 @@ export default function PlansPage() {
         is_data_unlimited: eIsDataUnlimited,
         is_duration_unlimited: eIsDurationUnlimited,
         price: ePrice,
+        category_id: eCategoryId ? parseInt(eCategoryId, 10) : null,
+        sort_order: parseInt(eSort || "0", 10),
       };
       if (!eIsDataUnlimited) payload.data_quota_mb = eDataQuotaMb === "" ? 0 : Number(eDataQuotaMb);
       if (!eIsDurationUnlimited) payload.duration_days = eDurationDays === "" ? 0 : Number(eDurationDays);
@@ -134,6 +151,17 @@ export default function PlansPage() {
           <div>
             <label className="block text-sm mb-1">نام</label>
             <input className="w-full h-10 px-3 rounded-md border bg-background" value={name} onChange={e=>setName(e.target.value)} placeholder="مثال: طلایی 30 روزه" />
+          </div>
+          <div>
+            <label className="block text-sm mb-1">دسته</label>
+            <select className="w-full h-10 px-3 rounded-md border bg-background" value={categoryId} onChange={e=>setCategoryId(e.target.value)}>
+              <option value="">(بدون دسته)</option>
+              {categories.map((c:any)=> <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm mb-1">ترتیب</label>
+            <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" value={sort} onChange={e=>setSort(e.target.value)} />
           </div>
           <div>
             <label className="block text-sm mb-1">حجم (MB)</label>
@@ -189,6 +217,17 @@ export default function PlansPage() {
                     <div>
                       <label className="block text-sm mb-1">قیمت</label>
                       <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={ePrice} onChange={e=>setEPrice(e.target.value)} placeholder="قیمت (T)" />
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">دسته</label>
+                      <select className="w-full h-10 px-3 rounded-md border bg-background" value={eCategoryId} onChange={e=>setECategoryId(e.target.value)}>
+                        <option value="">(بدون دسته)</option>
+                        {categories.map((c:any)=> <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm mb-1">ترتیب</label>
+                      <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" value={eSort} onChange={e=>setESort(e.target.value)} />
                     </div>
                   </div>
                 ) : (

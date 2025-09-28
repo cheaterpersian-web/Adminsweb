@@ -13,7 +13,11 @@ router = APIRouter()
 
 @router.get("/plans", response_model=List[PlanRead])
 def list_plans(db: Session = Depends(get_db), _: Depends = Depends(require_roles(["admin", "operator"]))):
-    return db.query(Plan).order_by(Plan.id.desc()).all()
+    return (
+        db.query(Plan)
+        .order_by(Plan.category_id().asc() if hasattr(Plan.category_id, 'asc') else Plan.category_id, Plan.sort_order.asc(), Plan.id.asc())
+        .all()
+    )
 
 
 @router.post("/plans", response_model=PlanRead)
@@ -37,6 +41,8 @@ def create_plan(payload: PlanCreate, _: Depends = Depends(require_root_admin), d
         duration_days=duration_days,
         is_duration_unlimited=bool(payload.is_duration_unlimited),
         price=payload.price,
+        category_id=payload.category_id,
+        sort_order=payload.sort_order,
     )
     db.add(plan)
     db.commit()
@@ -72,6 +78,10 @@ def update_plan(plan_id: int, payload: PlanUpdate, _: Depends = Depends(require_
 
     if payload.price is not None:
         plan.price = payload.price
+    if payload.category_id is not None:
+        plan.category_id = payload.category_id
+    if payload.sort_order is not None:
+        plan.sort_order = payload.sort_order
 
     db.add(plan)
     db.commit()

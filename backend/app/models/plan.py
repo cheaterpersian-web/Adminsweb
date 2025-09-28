@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Boolean, Column, Integer, Numeric, String
+from sqlalchemy import BigInteger, Boolean, Column, Integer, Numeric, String, ForeignKey
 from app.db.base import Base
 
 
@@ -16,4 +16,7 @@ class Plan(Base):
 
     # Price in smallest currency unit (e.g., rial/toman/cents), decimals supported via Numeric
     price = Column(Numeric(12, 2), nullable=False, default=0)
+    # Category and sort order
+    category_id = Column(Integer, ForeignKey("plan_categories.id", ondelete="SET NULL"), nullable=True)
+    sort_order = Column(Integer, nullable=False, default=0)
 
