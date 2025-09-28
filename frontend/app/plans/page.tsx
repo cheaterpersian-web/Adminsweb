@@ -44,6 +44,10 @@ export default function PlansPage() {
   const [sort, setSort] = useState<string>("0");
   const [eCategoryId, setECategoryId] = useState<string>("");
   const [eSort, setESort] = useState<string>("0");
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatSort, setNewCatSort] = useState<string>("0");
+  const [creatingCat, setCreatingCat] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -158,6 +162,29 @@ export default function PlansPage() {
               <option value="">(بدون دسته)</option>
               {categories.map((c:any)=> <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
+            <div className="mt-2 flex items-center gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={()=>setShowNewCat(v=>!v)}>افزودن دسته</Button>
+            </div>
+            {showNewCat && (
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+                <input className="h-9 px-3 rounded-md border bg-background" placeholder="نام دسته" value={newCatName} onChange={e=>setNewCatName(e.target.value)} />
+                <input className="h-9 px-3 rounded-md border bg-background" type="number" placeholder="ترتیب" value={newCatSort} onChange={e=>setNewCatSort(e.target.value)} />
+                <div className="md:col-span-2">
+                  <Button type="button" size="sm" disabled={creatingCat || !newCatName.trim()} onClick={async()=>{
+                    setCreatingCat(true);
+                    try {
+                      const payload = { name: newCatName.trim(), sort_order: parseInt(newCatSort || "0", 10) } as any;
+                      const created = await apiFetch("/plan-categories", { method: "POST", body: JSON.stringify(payload) });
+                      // reload categories
+                      try { const cats = await apiFetch("/plan-categories"); setCategories(cats||[]); } catch {}
+                      if (created && created.id) setCategoryId(String(created.id));
+                      setShowNewCat(false);
+                      setNewCatName(""); setNewCatSort("0");
+                    } finally { setCreatingCat(false); }
+                  }}>ثبت دسته</Button>
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm mb-1">ترتیب</label>
