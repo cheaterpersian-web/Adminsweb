@@ -23,23 +23,25 @@ def _run_pg_dump_to(path: str, db_url: str) -> None:
 
 
 def _build_archive(db_url: str) -> str:
-    tmp_dir = tempfile.mkdtemp(prefix="backup_")
-    db_dump_path = os.path.join(tmp_dir, "db.dump")
-    _run_pg_dump_to(db_dump_path, db_url)
+    # Use a temporary working directory that will be cleaned automatically
+    with tempfile.TemporaryDirectory(prefix="backup_") as tmp_dir:
+        db_dump_path = os.path.join(tmp_dir, "db.dump")
+        _run_pg_dump_to(db_dump_path, db_url)
 
-    # Optional: include configs directory
-    configs_dir = "/data/configs"
-    archive_path = os.path.join(tempfile.gettempdir(), f"backup_{int(datetime.now(tz=timezone.utc).timestamp())}.tar.gz")
-    with tarfile.open(archive_path, "w:gz") as tar:
-        tar.add(db_dump_path, arcname="db.dump")
-        if os.path.isdir(configs_dir):
-            tar.add(configs_dir, arcname="configs")
-        # meta
-        meta_path = os.path.join(tmp_dir, "meta.txt")
-        with open(meta_path, "w", encoding="utf-8") as f:
-            f.write(f"created_at={datetime.now(tz=timezone.utc).isoformat()}\n")
-        tar.add(meta_path, arcname="meta.txt")
-    return archive_path
+        # Optional: include configs directory
+        configs_dir = "/data/configs"
+        archive_path = os.path.join(tempfile.gettempdir(), f"backup_{int(datetime.now(tz=timezone.utc).timestamp())}.tar.gz")
+        # Create archive outside tmp_dir so it's not deleted when context exits
+        with tarfile.open(archive_path, "w:gz") as tar:
+            tar.add(db_dump_path, arcname="db.dump")
+            if os.path.isdir(configs_dir):
+                tar.add(configs_dir, arcname="configs")
+            # meta
+            meta_path = os.path.join(tmp_dir, "meta.txt")
+            with open(meta_path, "w", encoding="utf-8") as f:
+                f.write(f"created_at={datetime.now(tz=timezone.utc).isoformat()}\n")
+            tar.add(meta_path, arcname="meta.txt")
+        return archive_path
 
 
 async def _telegram_send_document(bot_token: str, chat_id: str, file_path: str, caption: Optional[str] = None) -> bool:

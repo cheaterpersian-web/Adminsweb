@@ -64,11 +64,18 @@ def run_backup(db: Session = Depends(get_db), _: Depends = Depends(require_root_
     # Compose pg_dump command from envs used in docker compose
     # For simplicity, use service DNS and credentials baked in envs
     try:
+        # Normalize driver prefix for pg_dump
+        pg_url = db_url.replace("postgresql+psycopg://", "postgresql://")
         with tempfile.NamedTemporaryFile(suffix=".dump", delete=False) as tf:
             tmp_path = tf.name
-        subprocess.check_call(["pg_dump", "-Fc", "-f", tmp_path, db_url])
+        subprocess.check_call(["pg_dump", "-Fc", "-f", tmp_path, pg_url])
         size = os.path.getsize(tmp_path)
-        return {"ok": True, "file": tmp_path, "size": size}
+        # Remove the local dump immediately to avoid disk usage
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+        return {"ok": True, "size": size}
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=f"pg_dump failed: {e}")
 
