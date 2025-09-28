@@ -379,20 +379,23 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
   const [volumeGb, setVolumeGb] = useState<string>("");
   const [days, setDays] = useState<string>("");
   const [msg, setMsg] = useState<string | null>(null);
+  const [action, setAction] = useState<"activate" | "disable" | "extend" | null>(null);
 
   const loadPlans = async () => { try { const d = await apiFetch("/plans"); setPlans(d); if (d.length && !planId) setPlanId(String(d[0].id)); } catch { setPlans([]); } };
 
   const setStatus = async (status: "active" | "disabled") => {
     setBusy(true);
+    setAction(status === "active" ? "activate" : "disable");
     try {
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/status`, { method: "POST", body: JSON.stringify({ status }) });
       setMsg(status === "active" ? "فعال شد" : "غیرفعال شد");
       onDone();
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setAction(null); }
   };
 
   const extend = async () => {
     setBusy(true);
+    setAction("extend");
     try {
       const body: any = { plan_id: parseInt(planId, 10) };
       if (volumeGb) body.volume_gb = parseFloat(volumeGb);
@@ -401,15 +404,21 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
       setShowExtend(false);
       setMsg("تمدید شد");
       onDone();
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setAction(null); }
   };
 
   return (
     <div className="flex flex-col gap-2 min-w-[280px]">
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("active")}>فعال</Button>
-        <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("disabled")}>غیرفعال</Button>
-        <Button size="sm" onClick={()=>{ setShowExtend(v=>!v); if (!plans) void loadPlans(); }}>تمدید</Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("active")}>
+          {action === "activate" && <span className="mr-1 inline-block h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>}
+          {action === "activate" ? "در حال فعال‌سازی..." : "فعال"}
+        </Button>
+        <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("disabled")}>
+          {action === "disable" && <span className="mr-1 inline-block h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>}
+          {action === "disable" ? "در حال غیرفعال‌سازی..." : "غیرفعال"}
+        </Button>
+        <Button size="sm" disabled={busy} onClick={()=>{ setShowExtend(v=>!v); if (!plans) void loadPlans(); }}>تمدید</Button>
       </div>
       {showExtend && (
         <div className="flex flex-col sm:flex-row gap-2">
@@ -418,7 +427,10 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
           </select>
           <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="حجم GB" value={volumeGb} onChange={e=>setVolumeGb(e.target.value)} />
           <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="روز" value={days} onChange={e=>setDays(e.target.value)} />
-          <Button size="sm" onClick={extend} disabled={busy || !planId}>اعمال تمدید</Button>
+          <Button size="sm" onClick={extend} disabled={busy || !planId}>
+            {action === "extend" && <span className="mr-1 inline-block h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>}
+            {action === "extend" ? "در حال اعمال..." : "اعمال تمدید"}
+          </Button>
         </div>
       )}
       {msg && <div className="text-xs text-muted-foreground">{msg}</div>}
