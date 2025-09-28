@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { formatToman } from "../../lib/utils";
 import { Button } from "../../components/ui/button";
 
 export default function WalletsAdminPage() {
@@ -74,7 +75,7 @@ export default function WalletsAdminPage() {
                     <td className="p-2">{u.name}</td>
                     <td className="p-2">{u.email}</td>
                     <td className="p-2">{u.role}</td>
-                    <td className="p-2">{balances[u.id] ?? "-"}</td>
+                    <td className="p-2">{balances[u.id] ? formatToman(balances[u.id]) : "-"}</td>
                     <td className="p-2">
                       <div className="flex flex-col sm:flex-row gap-2 items-start">
                         <input className="h-9 px-3 rounded-md border bg-background w-40" placeholder="Amount" value={amountByUser[u.id] || ""} onChange={e=>setAmountByUser(s=>({ ...s, [u.id]: e.target.value }))} />
@@ -84,7 +85,7 @@ export default function WalletsAdminPage() {
                     </td>
                     <td className="p-2">
                       <div className="flex flex-col sm:flex-row gap-2 items-start">
-                        <input className="h-9 px-3 rounded-md border bg-background w-40" placeholder="Target balance" value={targetByUser[u.id] || ""} onChange={e=>setTargetByUser(s=>({ ...s, [u.id]: e.target.value }))} />
+                        <input className="h-9 px-3 rounded-md border bg-background w-40" placeholder="Target balance (T)" value={targetByUser[u.id] || ""} onChange={e=>setTargetByUser(s=>({ ...s, [u.id]: e.target.value }))} />
                         <Button size="sm" onClick={()=>setBalance(u.id)}>Set</Button>
                       </div>
                     </td>

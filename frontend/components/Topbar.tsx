@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getAccessToken } from "../lib/auth";
 import { Button } from "./ui/button";
+import { formatToman } from "../lib/utils";
 
 export default function Topbar() {
   const router = useRouter();
@@ -77,7 +78,7 @@ export default function Topbar() {
         </div>
         <div className="flex items-center gap-2">
           <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow transition">
-            Wallet: {walletBalance ?? "-"}
+            Wallet: {walletBalance ? formatToman(walletBalance) : "-"}
           </Link>
           <Button variant="default" size="sm" onClick={logout}>Logout</Button>
         </div>
@@ -92,7 +93,7 @@ export default function Topbar() {
             {isRootAdmin && <Link href="/panels" className="py-2" onClick={()=>setOpen(false)}>Panels</Link>}
             {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="py-2" onClick={()=>setOpen(false)}>Templates</Link>}
-            <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet {walletBalance ? `(${walletBalance})` : ""}</Link>
+            <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet {walletBalance ? `(${formatToman(walletBalance)})` : ""}</Link>
             {!isRootAdmin && <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet</Link>}
             {isRootAdmin && <Link href="/wallets" className="py-2" onClick={()=>setOpen(false)}>Wallets</Link>}
           </nav>

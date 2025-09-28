@@ -149,7 +149,7 @@ export default function ConfigsPage() {
               <select className="w-full h-10 px-3 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)} required>
                 {(plans||[]).map((p:any)=> (
                   <option key={p.id} value={p.id}>
-                    {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {p.price}
+                    {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
                   </option>
                 ))}
               </select>

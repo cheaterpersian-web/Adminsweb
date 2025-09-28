@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import { formatToman } from "../../lib/utils";
 
 export default function WalletPage() {
   const [balance, setBalance] = useState<string>("0.00");
@@ -33,7 +34,7 @@ export default function WalletPage() {
       </div>
       <Card>
         <CardHeader>
-          <CardTitle>Balance: {balance}</CardTitle>
+          <CardTitle>Balance: {formatToman(balance)}</CardTitle>
         </CardHeader>
       </Card>
       <Card>
@@ -54,7 +55,7 @@ export default function WalletPage() {
               <tbody>
                 {txs.map((t:any)=> (
                   <tr key={t.id} className="border-t">
-                    <td className="p-2">{t.amount}</td>
+                    <td className="p-2">{formatToman(t.amount)}</td>
                     <td className="p-2">{t.reason || '-'}</td>
                     <td className="p-2">{new Date(t.created_at).toLocaleString()}</td>
                   </tr>

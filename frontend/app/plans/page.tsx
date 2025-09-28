@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
+import { formatToman } from "../../lib/utils";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "../../components/ui/card";
 
 type Plan = {
@@ -150,7 +151,7 @@ export default function PlansPage() {
           </div>
           <div>
             <label className="block text-sm mb-1">قیمت</label>
-            <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={price} onChange={e=>setPrice(e.target.value)} placeholder="مثال: 199000" />
+            <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={price} onChange={e=>setPrice(e.target.value)} placeholder="مثال: 199000 (T)" />
           </div>
         </CardContent>
         <CardFooter>
@@ -187,14 +188,14 @@ export default function PlansPage() {
                     </div>
                     <div>
                       <label className="block text-sm mb-1">قیمت</label>
-                      <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={ePrice} onChange={e=>setEPrice(e.target.value)} />
+                      <input className="w-full h-10 px-3 rounded-md border bg-background" type="number" min={0} step="0.01" value={ePrice} onChange={e=>setEPrice(e.target.value)} placeholder="قیمت (T)" />
                     </div>
                   </div>
                 ) : (
                   <>
                     <CardTitle>{p.name}</CardTitle>
                     <CardDescription>
-                      {p.is_data_unlimited ? "حجم نامحدود" : `${p.data_quota_mb?.toLocaleString()} MB`} · {p.is_duration_unlimited ? "زمان نامحدود" : `${p.duration_days} روز`} · قیمت: {p.price}
+                      {p.is_data_unlimited ? "حجم نامحدود" : `${p.data_quota_mb?.toLocaleString()} MB`} · {p.is_duration_unlimited ? "زمان نامحدود" : `${p.duration_days} روز`} · قیمت: {formatToman(p.price)}
                     </CardDescription>
                   </>
                 )}
