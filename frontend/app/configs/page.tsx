@@ -10,6 +10,7 @@ export default function ConfigsPage() {
   const [panelId, setPanelId] = useState<string>("");
   const [panels, setPanels] = useState<any[] | null>(null);
   const [plans, setPlans] = useState<any[] | null>(null);
+  const [categories, setCategories] = useState<any[] | null>(null);
   const [isRootAdmin, setIsRootAdmin] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
@@ -39,9 +40,20 @@ export default function ConfigsPage() {
   };
   if (panels === null) { void loadPanels(); }
   const loadPlans = async () => {
-    try { const data = await apiFetch("/plans"); setPlans(data); if (data.length && !planId) setPlanId(String(data[0].id)); } catch { setPlans([]); }
+    try {
+      const [cats, data] = await Promise.all([
+        apiFetch("/plan-categories").catch(()=>[]),
+        apiFetch("/plans").catch(()=>[]),
+      ]);
+      setCategories(Array.isArray(cats) ? cats : []);
+      setPlans(Array.isArray(data) ? data : []);
+      if (Array.isArray(data) && data.length && !planId) setPlanId(String(data[0].id));
+    } catch {
+      setCategories([]);
+      setPlans([]);
+    }
   };
-  if (plans === null) { void loadPlans(); }
+  if (plans === null || categories === null) { void loadPlans(); }
 
   const loadAuth = async () => {
     try {
@@ -147,11 +159,33 @@ export default function ConfigsPage() {
             <div className="space-y-1">
               <label className="text-sm">پلن</label>
               <select className="w-full h-10 px-3 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)} required>
-                {(plans||[]).map((p:any)=> (
-                  <option key={p.id} value={p.id}>
-                    {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
-                  </option>
-                ))}
+                {/* گروه «بدون دسته» */}
+                {(() => {
+                  const uncategorized = (plans||[]).filter((p:any)=> !p.category_id);
+                  return uncategorized.length ? (
+                    <optgroup key="uncat" label="(بدون دسته)">
+                      {uncategorized.map((p:any)=> (
+                        <option key={p.id} value={p.id}>
+                          {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null;
+                })()}
+                {/* گروه‌های دسته‌بندی شده */}
+                {(categories||[]).map((c:any)=> {
+                  const items = (plans||[]).filter((p:any)=> p.category_id === c.id);
+                  if (!items.length) return null;
+                  return (
+                    <optgroup key={c.id} label={c.name}>
+                      {items.map((p:any)=> (
+                        <option key={p.id} value={p.id}>
+                          {p.name} — {(p.is_data_unlimited ? "حجم ∞" : `${p.data_quota_mb}MB`)} · {(p.is_duration_unlimited ? "زمان ∞" : `${p.duration_days} روز`)} · قیمت: {new Intl.NumberFormat('en-US').format(Number(p.price))} T
+                        </option>
+                      ))}
+                    </optgroup>
+                  );
+                })}
               </select>
             </div>
             {/* For operators, hide panel select and auto-use default; for sudo, show selector */}

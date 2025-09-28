@@ -13,11 +13,7 @@ router = APIRouter()
 
 @router.get("/plans", response_model=List[PlanRead])
 def list_plans(db: Session = Depends(get_db), _: Depends = Depends(require_roles(["admin", "operator"]))):
-    return (
-        db.query(Plan)
-        .order_by(Plan.category_id().asc() if hasattr(Plan.category_id, 'asc') else Plan.category_id, Plan.sort_order.asc(), Plan.id.asc())
-        .all()
-    )
+    return db.query(Plan).order_by(Plan.category_id.asc(), Plan.sort_order.asc(), Plan.id.asc()).all()
 
 
 @router.post("/plans", response_model=PlanRead)
