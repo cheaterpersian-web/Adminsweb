@@ -885,26 +885,66 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
             else:
                 body_base["expire"] = 0
 
+            # Helper to (re)fetch status and confirm
+            async def _confirm_status(expected: str) -> bool:
+                try:
+                    check = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+                    if check.headers.get("content-type", "").startswith("application/json"):
+                        j = check.json()
+                        if isinstance(j, dict):
+                            st = j.get("status")
+                            expv = j.get("expire")
+                            if expected == "disabled":
+                                return (st == "disabled") or (isinstance(expv, int) and expv == 0)
+                            if expected == "active":
+                                return (st == "active") or (isinstance(expv, int) and (expv or 0) > now_ts)
+                except Exception:
+                    return False
+                return False
+
             # Try multiple API patterns sequentially
             attempts: list[tuple[str, str, dict]] = []
+            admin_url = panel.base_url.rstrip("/") + f"/api/admin/user/{username}"
+            url_slash = url + "/"
             # 1) PATCH with canonical body (status)
             attempts.append(("PATCH", url, body_base))
+            attempts.append(("PATCH", url_slash, body_base))
+            attempts.append(("PATCH", admin_url, body_base))
             # 2) PATCH with enabled boolean
             body_enabled = dict(body_base)
             body_enabled["enabled"] = (payload.status == "active")
             attempts.append(("PATCH", url, body_enabled))
+            attempts.append(("PATCH", url_slash, body_enabled))
+            attempts.append(("PATCH", admin_url, body_enabled))
             # 3) PATCH with active boolean
             body_active = dict(body_base)
             body_active["active"] = (payload.status == "active")
             attempts.append(("PATCH", url, body_active))
-            # 4) If disabling, try POST to common action endpoints
+            attempts.append(("PATCH", url_slash, body_active))
+            attempts.append(("PATCH", admin_url, body_active))
+            # 4) PUT variants
+            attempts.append(("PUT", url, body_base))
+            attempts.append(("PUT", url_slash, body_base))
+            attempts.append(("PUT", admin_url, body_base))
+            attempts.append(("PUT", url, {"status": payload.status, "expire": body_base.get("expire", 0)}))
+            # 5) Status endpoints
+            attempts.append(("POST", panel.base_url.rstrip("/") + f"/api/user/{username}/status", {"status": payload.status}))
+            attempts.append(("PATCH", panel.base_url.rstrip("/") + f"/api/user/{username}/status", {"status": payload.status}))
+            attempts.append(("POST", panel.base_url.rstrip("/") + f"/api/admin/user/{username}/status", {"status": payload.status}))
+            # 6) Action endpoints enable/disable
             action_endpoints_enable = [
                 panel.base_url.rstrip("/") + f"/api/user/{username}/enable",
                 panel.base_url.rstrip("/") + f"/api/user/{username}/activate",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/enable",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/activate",
             ]
             action_endpoints_disable = [
                 panel.base_url.rstrip("/") + f"/api/user/{username}/disable",
                 panel.base_url.rstrip("/") + f"/api/user/{username}/deactivate",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/disable",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/deactivate",
+                panel.base_url.rstrip("/") + f"/api/user/{username}/status/disabled",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/status/disabled",
             ]
             if payload.status == "disabled":
                 for ep in action_endpoints_disable:
@@ -913,26 +953,34 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
                 for ep in action_endpoints_enable:
                     attempts.append(("POST", ep, {}))
 
+            # Try with two header styles: Bearer and Token
+            header_variants = [headers, {**headers, "Authorization": f"Token {token}"}]
             last_status: Optional[int] = None
             last_text: Optional[str] = None
-            for method, target, body_try in attempts:
-                try:
-                    if method == "PATCH":
-                        res = await client.patch(target, json=body_try, headers=headers)
-                    else:
-                        res = await client.post(target, json=body_try, headers=headers)
-                except Exception as e:
-                    last_status = 0
-                    last_text = str(e)
-                    continue
-                if 200 <= res.status_code < 300:
+            for hdrs in header_variants:
+                for method, target, body_try in attempts:
                     try:
-                        record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
-                    except Exception:
-                        pass
-                    return {"ok": True}
-                last_status = res.status_code
-                last_text = res.text[:200]
+                        if method == "PATCH":
+                            res = await client.patch(target, json=body_try, headers=hdrs)
+                        elif method == "PUT":
+                            res = await client.put(target, json=body_try, headers=hdrs)
+                        else:
+                            res = await client.post(target, json=body_try, headers=hdrs)
+                    except Exception as e:
+                        last_status = 0
+                        last_text = str(e)
+                        continue
+                    if 200 <= res.status_code < 300:
+                        # Confirm the status actually changed
+                        if await _confirm_status(payload.status):
+                            try:
+                                record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
+                            except Exception:
+                                pass
+                            return {"ok": True}
+                        # If not confirmed, continue trying other variants
+                    last_status = res.status_code
+                    last_text = res.text[:200]
 
             raise HTTPException(status_code=last_status or 502, detail=last_text or "Panel status change failed")
         except HTTPException:
