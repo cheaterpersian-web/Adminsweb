@@ -23,6 +23,7 @@ export default function ConfigsPage() {
   const [delUser, setDelUser] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delMsg, setDelMsg] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadPanels = async () => {
     try {
@@ -315,7 +316,12 @@ export default function ConfigsPage() {
             </table>
           </div>
           <div className="mt-3 flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={loadCreated}>بروزرسانی</Button>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={refreshing}
+              onClick={async()=>{ setRefreshing(true); try { await loadCreated(); } finally { setRefreshing(false); } }}
+            >{refreshing ? "در حال بروزرسانی..." : "بروزرسانی"}</Button>
             <span className="text-xs text-muted-foreground">برای اپراتور، لیست زنده از پنل خوانده می‌شود</span>
           </div>
         </CardContent>
@@ -372,6 +378,7 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
   const [planId, setPlanId] = useState<string>("");
   const [volumeGb, setVolumeGb] = useState<string>("");
   const [days, setDays] = useState<string>("");
+  const [msg, setMsg] = useState<string | null>(null);
 
   const loadPlans = async () => { try { const d = await apiFetch("/plans"); setPlans(d); if (d.length && !planId) setPlanId(String(d[0].id)); } catch { setPlans([]); } };
 
@@ -379,6 +386,7 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
     setBusy(true);
     try {
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/status`, { method: "POST", body: JSON.stringify({ status }) });
+      setMsg(status === "active" ? "فعال شد" : "غیرفعال شد");
       onDone();
     } finally { setBusy(false); }
   };
@@ -391,6 +399,7 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
       if (days) body.duration_days = parseInt(days, 10);
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
       setShowExtend(false);
+      setMsg("تمدید شد");
       onDone();
     } finally { setBusy(false); }
   };
@@ -412,6 +421,7 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
           <Button size="sm" onClick={extend} disabled={busy || !planId}>اعمال تمدید</Button>
         </div>
       )}
+      {msg && <div className="text-xs text-muted-foreground">{msg}</div>}
     </div>
   );
 }
