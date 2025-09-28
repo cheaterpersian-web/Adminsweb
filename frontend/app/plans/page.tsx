@@ -48,6 +48,10 @@ export default function PlansPage() {
   const [newCatName, setNewCatName] = useState("");
   const [newCatSort, setNewCatSort] = useState<string>("0");
   const [creatingCat, setCreatingCat] = useState(false);
+  const [showEditCat, setShowEditCat] = useState(false);
+  const [editCatName, setEditCatName] = useState("");
+  const [editCatSort, setEditCatSort] = useState<string>("0");
+  const [editingCat, setEditingCat] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -164,6 +168,17 @@ export default function PlansPage() {
             </select>
             <div className="mt-2 flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={()=>setShowNewCat(v=>!v)}>Add category</Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!categoryId) return;
+                  const c = (categories||[]).find((x:any)=> String(x.id) === String(categoryId));
+                  if (c) { setEditCatName(c.name); setEditCatSort(String(c.sort_order ?? 0)); setShowEditCat(v=>!v); }
+                }}
+                disabled={!categoryId}
+              >Edit category</Button>
             </div>
             {showNewCat && (
               <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -181,6 +196,33 @@ export default function PlansPage() {
                       setNewCatName(""); setNewCatSort("0");
                     } finally { setCreatingCat(false); }
                   }}>Save category</Button>
+                </div>
+              </div>
+            )}
+            {showEditCat && (
+              <div className="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+                <input className="h-9 px-3 rounded-md border bg-background" placeholder="Category name" value={editCatName} onChange={e=>setEditCatName(e.target.value)} />
+                <input className="h-9 px-3 rounded-md border bg-background" type="number" placeholder="Order" value={editCatSort} onChange={e=>setEditCatSort(e.target.value)} />
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" disabled={editingCat || !categoryId || !editCatName.trim()} onClick={async()=>{
+                    if (!categoryId) return;
+                    setEditingCat(true);
+                    try {
+                      await apiFetch(`/plan-categories/${categoryId}`, { method: "PUT", body: JSON.stringify({ name: editCatName.trim(), sort_order: parseInt(editCatSort||"0",10) }) });
+                      await load();
+                      setShowEditCat(false);
+                    } finally { setEditingCat(false); }
+                  }}>Save</Button>
+                  <Button type="button" variant="destructive" size="sm" disabled={editingCat || !categoryId} onClick={async()=>{
+                    if (!categoryId) return;
+                    setEditingCat(true);
+                    try {
+                      await apiFetch(`/plan-categories/${categoryId}`, { method: "DELETE" });
+                      setCategoryId("");
+                      await load();
+                      setShowEditCat(false);
+                    } finally { setEditingCat(false); }
+                  }}>Delete</Button>
                 </div>
               </div>
             )}
