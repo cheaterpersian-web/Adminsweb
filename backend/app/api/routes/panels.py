@@ -1121,14 +1121,40 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
         base_user_url = panel.base_url.rstrip("/") + "/api/user"
 
         # Try multiple methods/endpoints similar to status change flow
+        # Build variant bodies to handle API differences
+        variant_bodies: list[dict] = []
+        variant_bodies.append(body_base)
+        # Variant: force active status
+        body_force_active = dict(body_base)
+        body_force_active["status"] = "active"
+        variant_bodies.append(body_force_active)
+        # Variant: use days fields for expire if limited
+        if target_expire_ts is not None:
+            add_days = max(1, int(plan.duration_days or 0))
+            body_expire_days = dict(body_base)
+            # Remove timestamp to avoid conflicts
+            if "expire" in body_expire_days:
+                del body_expire_days["expire"]
+            for k in ("expire_in_days", "expire_days", "duration_days"):
+                body_expire_days[k] = add_days
+            variant_bodies.append(body_expire_days)
+        # Variant: data_limit synonyms
+        body_limit = dict(body_base)
+        if "data_limit" in body_limit:
+            dl = body_limit.get("data_limit", 0)
+            body_limit["limit"] = dl
+            body_limit["quota"] = dl
+        variant_bodies.append(body_limit)
+
         attempts: list[tuple[str, str, dict]] = []
-        attempts.append(("PATCH", user_url, body_base))
-        attempts.append(("PATCH", user_url + "/", body_base))
-        attempts.append(("PATCH", admin_user_url, body_base))
-        attempts.append(("PUT", user_url, body_base))
-        attempts.append(("PUT", admin_user_url, body_base))
-        # Some panels update via POST /api/user as upsert
-        attempts.append(("POST", base_user_url, body_base))
+        for vb in variant_bodies:
+            attempts.append(("PATCH", user_url, vb))
+            attempts.append(("PATCH", user_url + "/", vb))
+            attempts.append(("PATCH", admin_user_url, vb))
+            attempts.append(("PUT", user_url, vb))
+            attempts.append(("PUT", admin_user_url, vb))
+            # Some panels update via POST /api/user as upsert
+            attempts.append(("POST", base_user_url, vb))
 
         header_variants = [headers, {**headers, "Authorization": f"Token {token}"}]
         last_status: Optional[int] = None

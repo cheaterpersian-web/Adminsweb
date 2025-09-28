@@ -410,7 +410,11 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
       const ok = window.confirm(`آیا مطمئن هستید تمدید با پلن «${planName}» و مبلغ ${new Intl.NumberFormat('en-US').format(price)} T انجام شود؟`);
       if (!ok) { setBusy(false); setAction(null); return; }
       const body: any = { plan_id: parseInt(planId, 10) };
-      await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
+      const res = await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
+      if (!res?.ok) {
+        setMsg(res?.error || "خطا در تمدید");
+        return;
+      }
       setShowExtend(false);
       setMsg("تمدید شد");
       onDone();
