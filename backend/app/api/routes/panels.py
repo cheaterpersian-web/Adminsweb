@@ -860,7 +860,7 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
                 current_expire_ts = None
 
             # Canonical PATCH body (full shape helps some panels apply changes reliably)
-            body: dict = {
+            body_base: dict = {
                 "status": payload.status,
                 "data_limit": current_body.get("data_limit", 0),
                 "data_limit_reset_strategy": "no_reset",
@@ -876,23 +876,65 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
                 "on_hold_expire_duration": 0,
                 "on_hold_timeout": current_body.get("on_hold_timeout", None),
             }
+            # expire field depending on desired status
             if payload.status == "active":
-                # If user expired, set minimal future expire so activation takes effect visibly
                 if current_expire_ts is None or current_expire_ts <= now_ts:
-                    body["expire"] = now_ts + 3600  # 1 hour
+                    body_base["expire"] = now_ts + 3600
                 else:
-                    body["expire"] = current_expire_ts
+                    body_base["expire"] = current_expire_ts
             else:
-                # disabled -> expire now
-                body["expire"] = 0
-            res = await client.patch(url, json=body, headers=headers)
-            if 200 <= res.status_code < 300:
+                body_base["expire"] = 0
+
+            # Try multiple API patterns sequentially
+            attempts: list[tuple[str, str, dict]] = []
+            # 1) PATCH with canonical body (status)
+            attempts.append(("PATCH", url, body_base))
+            # 2) PATCH with enabled boolean
+            body_enabled = dict(body_base)
+            body_enabled["enabled"] = (payload.status == "active")
+            attempts.append(("PATCH", url, body_enabled))
+            # 3) PATCH with active boolean
+            body_active = dict(body_base)
+            body_active["active"] = (payload.status == "active")
+            attempts.append(("PATCH", url, body_active))
+            # 4) If disabling, try POST to common action endpoints
+            action_endpoints_enable = [
+                panel.base_url.rstrip("/") + f"/api/user/{username}/enable",
+                panel.base_url.rstrip("/") + f"/api/user/{username}/activate",
+            ]
+            action_endpoints_disable = [
+                panel.base_url.rstrip("/") + f"/api/user/{username}/disable",
+                panel.base_url.rstrip("/") + f"/api/user/{username}/deactivate",
+            ]
+            if payload.status == "disabled":
+                for ep in action_endpoints_disable:
+                    attempts.append(("POST", ep, {}))
+            else:
+                for ep in action_endpoints_enable:
+                    attempts.append(("POST", ep, {}))
+
+            last_status: Optional[int] = None
+            last_text: Optional[str] = None
+            for method, target, body_try in attempts:
                 try:
-                    record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
-                except Exception:
-                    pass
-                return {"ok": True}
-            raise HTTPException(status_code=res.status_code, detail=res.text[:200])
+                    if method == "PATCH":
+                        res = await client.patch(target, json=body_try, headers=headers)
+                    else:
+                        res = await client.post(target, json=body_try, headers=headers)
+                except Exception as e:
+                    last_status = 0
+                    last_text = str(e)
+                    continue
+                if 200 <= res.status_code < 300:
+                    try:
+                        record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
+                    except Exception:
+                        pass
+                    return {"ok": True}
+                last_status = res.status_code
+                last_text = res.text[:200]
+
+            raise HTTPException(status_code=last_status or 502, detail=last_text or "Panel status change failed")
         except HTTPException:
             raise
         except Exception as e:
