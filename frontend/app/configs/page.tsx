@@ -7,8 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/ca
 export default function ConfigsPage() {
   const [name, setName] = useState("");
   const [planId, setPlanId] = useState<string>("");
-  const [extendVolumeGb, setExtendVolumeGb] = useState<string>("");
-  const [extendDays, setExtendDays] = useState<string>("");
   const [panelId, setPanelId] = useState<string>("");
   const [panels, setPanels] = useState<any[] | null>(null);
   const [plans, setPlans] = useState<any[] | null>(null);
@@ -376,8 +374,6 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
   const [showExtend, setShowExtend] = useState(false);
   const [plans, setPlans] = useState<any[] | null>(null);
   const [planId, setPlanId] = useState<string>("");
-  const [volumeGb, setVolumeGb] = useState<string>("");
-  const [days, setDays] = useState<string>("");
   const [msg, setMsg] = useState<string | null>(null);
   const [action, setAction] = useState<"activate" | "disable" | "extend" | null>(null);
 
@@ -398,8 +394,6 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
     setAction("extend");
     try {
       const body: any = { plan_id: parseInt(planId, 10) };
-      if (volumeGb) body.volume_gb = parseFloat(volumeGb);
-      if (days) body.duration_days = parseInt(days, 10);
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
       setShowExtend(false);
       setMsg("تمدید شد");
@@ -425,8 +419,6 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
           <select className="h-9 px-2 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)}>
             {(plans||[]).map((p:any)=> <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="حجم GB" value={volumeGb} onChange={e=>setVolumeGb(e.target.value)} />
-          <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="روز" value={days} onChange={e=>setDays(e.target.value)} />
           <Button size="sm" onClick={extend} disabled={busy || !planId}>
             {action === "extend" && <span className="mr-1 inline-block h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>}
             {action === "extend" ? "در حال اعمال..." : "اعمال تمدید"}
