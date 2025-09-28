@@ -374,10 +374,22 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
   const [showExtend, setShowExtend] = useState(false);
   const [plans, setPlans] = useState<any[] | null>(null);
   const [planId, setPlanId] = useState<string>("");
+  const [planPriceMap, setPlanPriceMap] = useState<Record<string, number>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [action, setAction] = useState<"activate" | "disable" | "extend" | null>(null);
 
-  const loadPlans = async () => { try { const d = await apiFetch("/plans"); setPlans(d); if (d.length && !planId) setPlanId(String(d[0].id)); } catch { setPlans([]); } };
+  const loadPlans = async () => {
+    try {
+      const d = await apiFetch("/plans");
+      setPlans(d);
+      if (Array.isArray(d)) {
+        const pm: Record<string, number> = {};
+        for (const p of d) pm[String(p.id)] = Number(p.price || 0);
+        setPlanPriceMap(pm);
+      }
+      if (Array.isArray(d) && d.length && !planId) setPlanId(String(d[0].id));
+    } catch { setPlans([]); }
+  };
 
   const setStatus = async (status: "active" | "disabled") => {
     setBusy(true);
@@ -393,6 +405,10 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
     setBusy(true);
     setAction("extend");
     try {
+      const price = planPriceMap[planId] || 0;
+      const planName = (plans||[]).find((p:any)=> String(p.id) === String(planId))?.name || "";
+      const ok = window.confirm(`آیا مطمئن هستید تمدید با پلن «${planName}» و مبلغ ${new Intl.NumberFormat('en-US').format(price)} T انجام شود؟`);
+      if (!ok) { setBusy(false); setAction(null); return; }
       const body: any = { plan_id: parseInt(planId, 10) };
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
       setShowExtend(false);
@@ -419,6 +435,11 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
           <select className="h-9 px-2 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)}>
             {(plans||[]).map((p:any)=> <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          {planId && (planPriceMap[planId] || planPriceMap[planId] === 0) && (
+            <div className="h-9 px-2 text-xs flex items-center text-muted-foreground">
+              قیمت: {new Intl.NumberFormat('en-US').format(planPriceMap[planId])} T
+            </div>
+          )}
           <Button size="sm" onClick={extend} disabled={busy || !planId}>
             {action === "extend" && <span className="mr-1 inline-block h-3 w-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>}
             {action === "extend" ? "در حال اعمال..." : "اعمال تمدید"}
