@@ -846,20 +846,23 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
             # Fetch current user to decide minimal expire bump when enabling
             now_ts = int(datetime.now(tz=timezone.utc).timestamp())
             current_expire_ts: Optional[int] = None
+            current_body: dict = {}
             try:
                 u = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
                 if u.headers.get("content-type", "").startswith("application/json"):
                     data = u.json()
-                    ts = data.get("expire") if isinstance(data, dict) else None
-                    if isinstance(ts, (int, float)):
-                        current_expire_ts = int(ts)
+                    if isinstance(data, dict):
+                        current_body = data
+                        ts = data.get("expire")
+                        if isinstance(ts, (int, float)):
+                            current_expire_ts = int(ts)
             except Exception:
                 current_expire_ts = None
 
             # Canonical PATCH body (full shape helps some panels apply changes reliably)
             body: dict = {
                 "status": payload.status,
-                "data_limit": 0,
+                "data_limit": current_body.get("data_limit", 0),
                 "data_limit_reset_strategy": "no_reset",
                 "inbounds": current_body.get("inbounds") or {},
                 "proxies": current_body.get("proxies") or {},
