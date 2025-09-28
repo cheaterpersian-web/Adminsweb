@@ -369,14 +369,11 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
   const [busy, setBusy] = useState(false);
   const [showExtend, setShowExtend] = useState(false);
   const [plans, setPlans] = useState<any[] | null>(null);
-  const [templates, setTemplates] = useState<any[] | null>(null);
   const [planId, setPlanId] = useState<string>("");
-  const [templateId, setTemplateId] = useState<string>("");
   const [volumeGb, setVolumeGb] = useState<string>("");
   const [days, setDays] = useState<string>("");
 
   const loadPlans = async () => { try { const d = await apiFetch("/plans"); setPlans(d); if (d.length && !planId) setPlanId(String(d[0].id)); } catch { setPlans([]); } };
-  const loadTemplates = async () => { try { const d = await apiFetch("/templates"); setTemplates(d); if (d.length && !templateId) setTemplateId(String(d[0].id)); } catch { setTemplates([]); } };
 
   const setStatus = async (status: "active" | "disabled") => {
     setBusy(true);
@@ -390,7 +387,6 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
     setBusy(true);
     try {
       const body: any = { plan_id: parseInt(planId, 10) };
-      if (templateId) body.template_id = parseInt(templateId, 10);
       if (volumeGb) body.volume_gb = parseFloat(volumeGb);
       if (days) body.duration_days = parseInt(days, 10);
       await apiFetch(`/panels/${panelId}/user/${encodeURIComponent(username)}/extend`, { method: "POST", body: JSON.stringify(body) });
@@ -404,16 +400,12 @@ function RowActions({ username, panelId, onDone }: { username: string; panelId: 
       <div className="flex flex-wrap gap-2">
         <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("active")}>فعال</Button>
         <Button size="sm" variant="outline" disabled={busy} onClick={()=>setStatus("disabled")}>غیرفعال</Button>
-        <Button size="sm" onClick={()=>{ setShowExtend(v=>!v); if (!plans) void loadPlans(); if (!templates) void loadTemplates(); }}>تمدید</Button>
+        <Button size="sm" onClick={()=>{ setShowExtend(v=>!v); if (!plans) void loadPlans(); }}>تمدید</Button>
       </div>
       {showExtend && (
         <div className="flex flex-col sm:flex-row gap-2">
           <select className="h-9 px-2 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)}>
             {(plans||[]).map((p:any)=> <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <select className="h-9 px-2 rounded-md border bg-background" value={templateId} onChange={e=>setTemplateId(e.target.value)}>
-            <option value="">بدون تمپلیت</option>
-            {(templates||[]).map((t:any)=> <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="حجم GB" value={volumeGb} onChange={e=>setVolumeGb(e.target.value)} />
           <input className="h-9 px-2 rounded-md border bg-background w-28" placeholder="روز" value={days} onChange={e=>setDays(e.target.value)} />
