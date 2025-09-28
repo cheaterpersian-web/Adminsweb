@@ -901,8 +901,6 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
 class PanelUserExtendRequest(BaseModel):
     plan_id: int
     template_id: Optional[int] = None
-    volume_gb: Optional[float] = None
-    duration_days: Optional[int] = None
 
 
 @router.post("/panels/{panel_id}/user/{username}/extend")
@@ -953,16 +951,12 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
-        # Compute target expire RESET (base on now, not additive)
-        if payload.duration_days is not None:
-            add_days = max(1, int(payload.duration_days))
-            target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
+        # Compute target expire RESET (always based on plan, from now)
+        if plan.is_duration_unlimited:
+            target_expire_ts = None
         else:
-            if plan.is_duration_unlimited:
-                target_expire_ts = None
-            else:
-                add_days = max(1, int(plan.duration_days or 0))
-                target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
+            add_days = max(1, int(plan.duration_days or 0))
+            target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
 
         # Optionally enforce template inbounds
         proxies_obj = None
@@ -998,11 +992,8 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             proxies_obj = None
             inbounds_obj = None
 
-        # Data limit RESET: prefer operator-provided volume_gb, else plan value (0 for unlimited)
-        if payload.volume_gb is not None:
-            bytes_limit = int(max(0.0, float(payload.volume_gb)) * (1024 ** 3))
-        else:
-            bytes_limit = 0 if plan.is_data_unlimited else int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
+        # Data limit RESET based on plan (0 for unlimited)
+        bytes_limit = 0 if plan.is_data_unlimited else int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
 
         body: dict = {"username": username, "data_limit": bytes_limit}
         if target_expire_ts is not None:
