@@ -81,6 +81,9 @@ export default function Topbar() {
           <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow transition">
             Wallet: {walletBalance ? formatToman(walletBalance) : "-"}
           </Link>
+          <Link href="/wallet" className="inline-flex sm:hidden items-center rounded-full border px-2 py-1 text-xs font-medium hover:shadow transition">
+            {walletBalance ? formatToman(walletBalance) : "Wallet"}
+          </Link>
           <Button variant="default" size="sm" onClick={logout}>Logout</Button>
         </div>
       </div>
@@ -95,8 +98,7 @@ export default function Topbar() {
             {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="py-2" onClick={()=>setOpen(false)}>Templates</Link>}
             {isRootAdmin && <Link href="/backup" className="py-2" onClick={()=>setOpen(false)}>Backup</Link>}
-            <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet {walletBalance ? `(${formatToman(walletBalance)})` : ""}</Link>
-            {!isRootAdmin && <Link href="/wallet" className="py-2" onClick={()=>setOpen(false)}>Wallet</Link>}
+            {/* Wallet balance shown in header near Logout on mobile; remove from list */}
             {isRootAdmin && <Link href="/wallets" className="py-2" onClick={()=>setOpen(false)}>Wallets</Link>}
           </nav>
         </div>
