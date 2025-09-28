@@ -35,6 +35,7 @@ app.add_middleware(SlowAPIMiddleware)
 from app.api.routes import auth, users, configs, audit, control, monitoring, ws, notifications, panels, plans, wallet, templates  # noqa: E402
 from app.api.routes import plan_categories  # noqa: E402
 from app.api.routes import backup  # noqa: E402
+from app.services.backup import schedule_backup_task  # noqa: E402
 
 app.include_router(auth.router, prefix=settings.api_prefix, tags=["auth"])
 app.include_router(users.router, prefix=settings.api_prefix, tags=["users"])
@@ -48,6 +49,12 @@ app.include_router(wallet.router, prefix=settings.api_prefix, tags=["wallet"])
 app.include_router(templates.router, prefix=settings.api_prefix, tags=["templates"])
 app.include_router(plan_categories.router, prefix=settings.api_prefix, tags=["plan-categories"])
 app.include_router(backup.router, prefix=settings.api_prefix, tags=["backup"])
+
+# Kick off background backup scheduler
+try:
+    schedule_backup_task()
+except Exception:
+    pass
 app.include_router(notifications.router, prefix=settings.api_prefix, tags=["notifications"])
 app.include_router(ws.router, tags=["ws"])  # path defined inside router
 
