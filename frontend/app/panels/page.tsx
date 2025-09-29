@@ -63,7 +63,7 @@ export default function PanelsPage() {
     try {
       const payload = { ...form, base_url: normalizeUrl(form.base_url) };
       const p = await apiFetch("/panels", { method: "POST", body: JSON.stringify(payload) });
-      setForm({ name: "", base_url: "", username: "", password: "" });
+      setForm({ name: "", base_url: "", username: "", password: "", type: "marzban" });
       await load();
       if (p && p.id) {
         setSelectedPanelId(String(p.id));
