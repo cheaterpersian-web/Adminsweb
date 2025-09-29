@@ -393,6 +393,13 @@ def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_
     return CreatedUsersResponse(items=items)
 
 
+@router.get("/panels/created/by-user/{user_id}", response_model=CreatedUsersResponse)
+def list_created_users_by_user(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    rows = db.query(PanelCreatedUser).filter(PanelCreatedUser.created_by_user_id == user_id).order_by(PanelCreatedUser.id.desc()).all()
+    items = [CreatedUserItem(id=r.id, panel_id=r.panel_id, username=r.username, subscription_url=r.subscription_url, created_at=r.created_at) for r in rows]
+    return CreatedUsersResponse(items=items)
+
+
 class PanelUserInfoResponse(BaseModel):
     username: str
     data_limit: Optional[int] = None
@@ -739,7 +746,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             try:
                 # Best-effort canonicalize the URL to include panel domain
                 sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
-                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
+                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
                 db.add(rec)
                 db.commit()
             except Exception:
@@ -762,7 +769,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     sub_url = await _extract_subscription_url(panel.base_url, data2)
                     try:
                         sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
-                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
+                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
                         db.add(rec)
                         db.commit()
                     except Exception:

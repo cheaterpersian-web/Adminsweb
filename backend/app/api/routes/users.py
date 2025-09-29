@@ -128,6 +128,15 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
         user.role = payload.role
     if payload.is_active is not None:
         user.is_active = payload.is_active
+    if payload.email is not None:
+        # enforce uniqueness if changed
+        if payload.email != user.email:
+            exists = db.query(User).filter(User.email == payload.email).first()
+            if exists:
+                raise HTTPException(status_code=400, detail="Email already in use")
+            user.email = payload.email
+    if payload.password is not None and str(payload.password).strip():
+        user.hashed_password = hash_password(payload.password)
     db.add(user)
     db.commit()
     db.refresh(user)

@@ -36,6 +36,8 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
 
 
 class UserRead(UserBase):

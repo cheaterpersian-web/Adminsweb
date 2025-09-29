@@ -112,7 +112,10 @@ export default function UsersPage() {
                 <td className="p-2">
                   <input className="border rounded-md h-9 px-2" defaultValue={u.name} onBlur={e=>updateUser(u.id, { name: e.target.value })} />
                 </td>
-                <td className="p-2">{u.email}</td>
+                <td className="p-2">
+                  <input className="border rounded-md h-9 px-2 w-56" defaultValue={u.email}
+                         onBlur={e=>updateUser(u.id, { email: e.target.value })} />
+                </td>
                 <td className="p-2">
                   <select className="border rounded-md h-9 px-2" defaultValue={u.role} onChange={e=>updateUser(u.id, { role: e.target.value })}>
                     <option value="admin">admin</option>
@@ -121,10 +124,12 @@ export default function UsersPage() {
                   </select>
                 </td>
                 <td className="p-2">{u.is_active ? "Yes" : "No"}</td>
-                <td className="p-2">
+                <td className="p-2 space-x-2">
                   <Button variant="outline" size="sm" disabled={savingId===u.id} onClick={()=>toggleActive(u.id, u.is_active)}>
                     {u.is_active ? "Disable" : "Enable"}
                   </Button>
+                  <PasswordReset userId={u.id} onSaved={load} />
+                  <ViewCreatedConfigs userId={u.id} />
                 </td>
                 <td className="p-2">
                   <select className="border rounded-md h-9 px-2" value={u.template_id || ""} onChange={async (e)=>{
@@ -144,5 +149,95 @@ export default function UsersPage() {
         </table>
       </div>
     </main>
+  );
+}
+
+function PasswordReset({ userId, onSaved }: { userId: number; onSaved: ()=>void }) {
+  const [open, setOpen] = useState(false);
+  const [show, setShow] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <span>
+      <Button variant="outline" size="sm" onClick={()=>setOpen(true)}>Set Password</Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background border rounded-md p-4 w-[360px] space-y-3">
+            <div className="font-semibold">Set new password</div>
+            <div className="flex items-center gap-2">
+              <input className="border rounded-md h-9 px-2 flex-1" type={show?"text":"password"} value={pwd} onChange={e=>setPwd(e.target.value)} placeholder="New password" />
+              <Button variant="outline" size="sm" onClick={()=>setShow(s=>!s)}>{show?"Hide":"Show"}</Button>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={()=>{ setOpen(false); setPwd(""); }}>Cancel</Button>
+              <Button size="sm" disabled={busy || !pwd.trim()} onClick={async()=>{
+                setBusy(true);
+                try { await apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify({ password: pwd }) }); onSaved(); setOpen(false); setPwd(""); } finally { setBusy(false); }
+              }}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function ViewCreatedConfigs({ userId }: { userId: number }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/panels/created/by-user/${userId}`);
+      setItems(res?.items || []);
+    } finally { setLoading(false); }
+  };
+  return (
+    <span>
+      <Button variant="outline" size="sm" onClick={()=>{ setOpen(true); if (items===null) void load(); }}>Configs</Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background border rounded-md p-4 w-[720px] max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-semibold">Created configs</div>
+              <Button variant="outline" size="sm" onClick={()=>setOpen(false)}>Close</Button>
+            </div>
+            {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
+            {!loading && (
+              <table className="w-full text-sm border">
+                <thead className="bg-secondary">
+                  <tr>
+                    <th className="p-2 text-left">Panel</th>
+                    <th className="p-2 text-left">Username</th>
+                    <th className="p-2 text-left">Created</th>
+                    <th className="p-2 text-left">Subscription</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(items||[]).map((r:any)=> (
+                    <tr key={r.id} className="border-t">
+                      <td className="p-2">{r.panel_id}</td>
+                      <td className="p-2">{r.username}</td>
+                      <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
+                      <td className="p-2 truncate">
+                        {r.subscription_url ? (
+                          <a className="underline" href={r.subscription_url} target="_blank" rel="noreferrer">Open</a>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {items && items.length === 0 && (
+                    <tr><td className="p-3 text-muted-foreground" colSpan={4}>Empty</td></tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )}
+    </span>
   );
 }

@@ -11,6 +11,7 @@ class PanelCreatedUser(Base):
     username = Column(String(255), nullable=False)
     subscription_url = Column(String(1024), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     __table_args__ = (
         UniqueConstraint("panel_id", "username", name="uq_panel_user"),
