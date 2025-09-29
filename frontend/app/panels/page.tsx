@@ -5,7 +5,7 @@ import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 
-type Panel = { id: number; name: string; base_url: string; username: string; is_default?: boolean };
+type Panel = { id: number; name: string; base_url: string; username: string; is_default?: boolean; type?: string };
 type InboundItem = { id: string; tag?: string; remark?: string };
 type HostItem = { host: string };
 
@@ -13,7 +13,7 @@ export default function PanelsPage() {
   const [authChecked, setAuthChecked] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
   const [panels, setPanels] = useState<Panel[]>([]);
-  const [form, setForm] = useState({ name: "", base_url: "", username: "", password: "" });
+  const [form, setForm] = useState({ name: "", base_url: "", username: "", password: "", type: "marzban" as "marzban" | "xui" });
   const [busy, setBusy] = useState(false);
   const [testMsg, setTestMsg] = useState<string | null>(null);
   const [inbounds, setInbounds] = useState<InboundItem[] | null>(null);
@@ -175,7 +175,7 @@ export default function PanelsPage() {
     <main className="space-y-6">
       <div className="space-y-1">
         <h1 className="text-2xl font-semibold">Panels</h1>
-        <p className="text-sm text-muted-foreground">افزودن پنل مرزبان با URL / User / Password</p>
+        <p className="text-sm text-muted-foreground">افزودن پنل (Marzban یا XUI) با URL / User / Password</p>
       </div>
 
       <Card>
@@ -187,6 +187,13 @@ export default function PanelsPage() {
             <div className="space-y-1">
               <label className="text-sm">نام</label>
               <input className="w-full h-10 px-3 rounded-md border bg-background" placeholder="مثال: panel-1" value={form.name} onChange={e=>setForm(v=>({...v,name:e.target.value}))} required />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">نوع پنل</label>
+              <select className="w-full h-10 px-3 rounded-md border bg-background" value={form.type} onChange={e=>setForm(v=>({...v, type: e.target.value as any}))}>
+                <option value="marzban">Marzban</option>
+                <option value="xui">XUI</option>
+              </select>
             </div>
             <div className="space-y-1">
               <label className="text-sm">Base URL</label>
@@ -219,7 +226,7 @@ export default function PanelsPage() {
               <label className="text-sm">پنل</label>
               <select className="w-full h-10 px-3 rounded-md border bg-background" value={selectedPanelId} onChange={e=>{ setSelectedPanelId(e.target.value); const v = parseInt(e.target.value,10); if (v) { loadInbounds(v); loadHosts(v); } }}>
                 <option value="">انتخاب پنل</option>
-                {panels.map(p=> <option key={p.id} value={p.id}>{p.name} - {p.base_url}</option>)}
+                {panels.map(p=> <option key={p.id} value={p.id}>{p.name} - {p.base_url} ({p.type || 'marzban'})</option>)}
               </select>
             </div>
             <div className="space-y-1 md:col-span-2">
@@ -266,7 +273,7 @@ export default function PanelsPage() {
                 {panels.map(p => (
                   <tr key={p.id} className="border-t">
                     <td className="p-2 hidden sm:table-cell">{p.id}</td>
-                    <td className="p-2">{p.name}</td>
+                    <td className="p-2">{p.name} <span className="text-xs text-muted-foreground">({p.type || 'marzban'})</span></td>
                     <td className="p-2">{p.base_url}</td>
                     <td className="p-2 hidden md:table-cell">{p.username}</td>
                     <td className="p-2">

@@ -29,6 +29,7 @@ class PanelCreate(BaseModel):
     base_url: AnyHttpUrl
     username: str
     password: str
+    type: Optional[str] = "marzban"  # marzban | xui
 
 
 class PanelUpdate(BaseModel):
@@ -111,7 +112,10 @@ def set_default_panel(panel_id: int, db: Session = Depends(get_db), _: User = De
 def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     if db.query(Panel).filter(Panel.name == payload.name).first():
         raise HTTPException(status_code=400, detail="Panel name already exists")
-    panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password)
+    ptype = (payload.type or "marzban").lower()
+    if ptype not in ("marzban", "xui"):
+        ptype = "marzban"
+    panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password, type=ptype)
     try:
         db.add(panel)
         db.commit()
