@@ -147,6 +147,7 @@ class PanelTestRequest(BaseModel):
     base_url: AnyHttpUrl
     username: str
     password: str
+    type: Optional[str] = None
 
 
 class PanelTestResponse(BaseModel):
@@ -198,9 +199,51 @@ async def _try_login(base_url: str, username: str, password: str) -> tuple[bool,
     return False, None, None, last_error
 
 
+async def _try_login_xui(base_url: str, username: str, password: str) -> tuple[bool, Optional[str], Optional[int], Optional[str]]:
+    # X-UI typically uses cookie-based auth via /login or /xui/login
+    last_error = None
+    async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+        for path in ("/xui/login", "/login"):
+            url = base_url.rstrip("/") + path
+            try:
+                # Common fields for x-ui login
+                res = await client.post(url, data={"username": username, "password": password})
+            except Exception as e:
+                last_error = str(e)
+                continue
+            # Check for set-cookie
+            sc = res.headers.get("set-cookie") or res.headers.get("Set-Cookie")
+            if sc and res.status_code in (200, 204, 302):
+                # Try to access a protected page/json to confirm
+                try:
+                    # Some panels expose /xui/inbounds or /panel/inbounds
+                    for check_path in ("/xui/inbounds", "/panel/inbounds", "/xui/", "/"):
+                        chk = await client.get(base_url.rstrip("/") + check_path)
+                        if chk.status_code in (200, 204):
+                            # Return cookie preview as token_preview
+                            return True, path, res.status_code, (sc.split(";")[0][:24] + "...")
+                except Exception:
+                    pass
+                return True, path, res.status_code, (sc.split(";")[0][:24] + "...")
+            if res.status_code in (401, 403):
+                return False, path, res.status_code, "Unauthorized"
+        # Fallback: check reachability
+        try:
+            chk = await client.get(base_url.rstrip("/") + "/xui/")
+            if chk.status_code == 200:
+                return False, "/xui/", 200, "Reachable, but login failed"
+        except Exception as e:
+            last_error = str(e)
+    return False, None, None, last_error
+
+
 @router.post("/panels/test", response_model=PanelTestResponse)
 async def test_panel(payload: PanelTestRequest, _: User = Depends(require_root_admin)):
-    ok, endpoint, status, info = await _try_login(str(payload.base_url), payload.username, payload.password)
+    ptype = (payload.type or "marzban").lower()
+    if ptype == "xui":
+        ok, endpoint, status, info = await _try_login_xui(str(payload.base_url), payload.username, payload.password)
+    else:
+        ok, endpoint, status, info = await _try_login(str(payload.base_url), payload.username, payload.password)
     if ok:
         return PanelTestResponse(ok=True, endpoint=endpoint, status=status, token_preview=info)
     return PanelTestResponse(ok=False, endpoint=endpoint, status=status, error=info)

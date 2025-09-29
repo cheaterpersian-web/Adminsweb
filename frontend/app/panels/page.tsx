@@ -79,7 +79,7 @@ export default function PanelsPage() {
     setBusy(true);
     setTestMsg(null);
     try {
-      const res = await apiFetch("/panels/test", { method: "POST", body: JSON.stringify({ base_url: normalizeUrl(form.base_url), username: form.username, password: form.password }) });
+      const res = await apiFetch("/panels/test", { method: "POST", body: JSON.stringify({ base_url: normalizeUrl(form.base_url), username: form.username, password: form.password, type: form.type }) });
       if (res.ok) {
         setTestMsg(`اتصال موفق (${res.endpoint}), token: ${res.token_preview || "..."}`);
       } else {
