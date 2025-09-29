@@ -11,6 +11,7 @@ from app.models.panel_inbound import PanelInbound
 from app.models.panel_created_user import PanelCreatedUser
 from app.models.user_panel_credentials import UserPanelCredential
 from pydantic import BaseModel, AnyHttpUrl
+import json
 from typing import Literal
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
@@ -435,6 +436,92 @@ async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current
             raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
         cred_username = rec.username
         cred_password = rec.password
+    # XUI branch
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+            # login cookie
+            logged_in = False
+            for path in ("/xui/login", "/login"):
+                try:
+                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": cred_username, "password": cred_password, "remember": "on"})
+                    if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                        logged_in = True
+                        break
+                except Exception:
+                    continue
+            if not logged_in:
+                raise HTTPException(status_code=502, detail="Login to XUI failed")
+            # Get inbounds and parse clients
+            # Try multiple endpoints to fetch inbounds (like we do above)
+            data = None
+            for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/xui/API/inbounds", "/panel/api/inbounds/list", "/panel/inbounds"):
+                try:
+                    res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                    if res.headers.get("content-type", "").startswith("application/json"):
+                        data = res.json()
+                        break
+                except Exception:
+                    continue
+            items: list[PanelUserListItem] = []
+            inbounds_list = None
+            if isinstance(data, dict):
+                for key in ("obj", "inbounds", "items", "data", "list"):
+                    v = data.get(key)
+                    if isinstance(v, list):
+                        inbounds_list = v
+                        break
+                if inbounds_list is None and isinstance(data.get("data"), dict):
+                    for key in ("items", "inbounds", "list", "obj"):
+                        if isinstance(data["data"].get(key), list):
+                            inbounds_list = data["data"][key]
+                            break
+            elif isinstance(data, list):
+                inbounds_list = data
+            # Extract clients from inbounds
+            if isinstance(inbounds_list, list):
+                for inbound in inbounds_list:
+                    if not isinstance(inbound, dict):
+                        continue
+                    # clients can be in settings.clients as JSON string or object
+                    clients = []
+                    settings = inbound.get("settings")
+                    if isinstance(settings, str):
+                        try:
+                            settings = json.loads(settings)
+                        except Exception:
+                            settings = None
+                    if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
+                        clients = settings.get("clients")
+                    # Some variants have clients field at top level
+                    if not clients and isinstance(inbound.get("clients"), list):
+                        clients = inbound.get("clients")
+                    for c in clients:
+                        if not isinstance(c, dict):
+                            continue
+                        email = str(c.get("email") or c.get("name") or c.get("username") or "")
+                        expire_ms = c.get("expiryTime") or c.get("expire")
+                        expire_ts = None
+                        if isinstance(expire_ms, (int, float)):
+                            # detect ms vs s
+                            expire_ts = int(expire_ms / 1000) if expire_ms > 10**10 else int(expire_ms)
+                        data_limit = c.get("totalGB")
+                        if isinstance(data_limit, str):
+                            try:
+                                data_limit = int(data_limit)
+                            except Exception:
+                                data_limit = None
+                        # Map GB to bytes if small number
+                        if isinstance(data_limit, (int, float)) and data_limit and data_limit < 10**9:
+                            data_limit = int(data_limit) * (1024**3)
+                        items.append(PanelUserListItem(
+                            username=email,
+                            status=None,
+                            data_limit=data_limit if isinstance(data_limit, int) else None,
+                            expire=expire_ts,
+                            subscription_url=None,
+                        ))
+            return PanelUsersResponse(items=items)
+
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
