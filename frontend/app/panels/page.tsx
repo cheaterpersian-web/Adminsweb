@@ -230,11 +230,16 @@ export default function PanelsPage() {
               </select>
             </div>
             <div className="space-y-1 md:col-span-2">
-              <label className="text-sm">انتخاب این‌باندها (چندتایی)</label>
+              <label className="text-sm">انتخاب این‌باندها</label>
               <div className="border rounded-md p-2 max-h-64 overflow-auto">
                 {(inbounds||[]).map(i=> (
                   <label key={i.id} className="flex items-center gap-2 py-1">
-                    <input type="checkbox" name="panel-inbound" value={i.id} />
+                    {(() => {
+                      const isXui = (panels.find(p => String(p.id) === String(selectedPanelId))?.type || 'marzban') === 'xui';
+                      return (
+                        <input type={isXui ? 'radio' : 'checkbox'} name="panel-inbound" value={i.id} />
+                      );
+                    })()}
                     <span className="text-sm">{i.tag || i.remark || i.id}</span>
                   </label>
                 ))}

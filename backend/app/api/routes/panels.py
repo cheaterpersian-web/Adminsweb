@@ -47,6 +47,7 @@ class PanelRead(BaseModel):
     inbound_id: Optional[str] = None
     inbound_tag: Optional[str] = None
     is_default: bool = False
+    type: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -264,6 +265,56 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
+    # XUI: cookie-based and endpoints differ
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            # login
+            logged_in = False
+            for path in ("/xui/login", "/login"):
+                try:
+                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": panel.username, "password": panel.password})
+                    if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                        logged_in = True
+                        break
+                except Exception:
+                    continue
+            if not logged_in:
+                raise HTTPException(status_code=502, detail="Login to XUI failed")
+            # fetch inbounds via common XUI endpoints
+            data = None
+            for ep in ("/xui/api/inbounds/list", "/xui/inbounds", "/panel/inbounds"):
+                try:
+                    res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                    if res.headers.get("content-type", "").startswith("application/json"):
+                        data = res.json()
+                        break
+                except Exception:
+                    continue
+            items: list[InboundItem] = []
+            if isinstance(data, dict):
+                # variants: { obj: [...] } or { inbounds: [...] } or { items: [...] }
+                candidates = None
+                for key in ("obj", "inbounds", "items"):
+                    if isinstance(data.get(key), list):
+                        candidates = data.get(key)
+                        break
+                if isinstance(candidates, list):
+                    for it in candidates:
+                        if not isinstance(it, dict):
+                            continue
+                        iid = str(it.get("id") or it.get("tag") or it.get("remark") or "")
+                        remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                        items.append(InboundItem(id=iid, tag=str(it.get("tag") or None) or None, remark=remark or None))
+            elif isinstance(data, list):
+                for it in data:
+                    if not isinstance(it, dict):
+                        continue
+                    iid = str(it.get("id") or it.get("tag") or it.get("remark") or "")
+                    remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                    items.append(InboundItem(id=iid, tag=str(it.get("tag") or None) or None, remark=remark or None))
+            return PanelInboundsResponse(items=items)
+
+    # Marzban default
     token = await _login_get_token(panel.base_url, panel.username, panel.password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
