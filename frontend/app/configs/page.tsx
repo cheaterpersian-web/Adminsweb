@@ -102,8 +102,26 @@ export default function ConfigsPage() {
       if (isRootAdmin) {
         const res = await apiFetch(`/panels/created`);
         const items = res.items || [];
-        setCreated(items);
-        if (items.length) { void loadInfoForRows(items); }
+        if (items.length > 0) {
+          setCreated(items);
+          void loadInfoForRows(items);
+          return;
+        }
+        // Fallback to live list from selected or default panel
+        let pid = parseInt(panelId, 10);
+        if (!pid) {
+          try { const def = await apiFetch(`/panels/default`); pid = def?.id || 0; } catch {}
+        }
+        if (pid) {
+          try {
+            const live = await apiFetch(`/panels/${pid}/users`);
+            const litems = (live.items || []).map((it:any, idx:number)=> ({ id: idx+1, panel_id: pid, username: it.username, created_at: new Date().toISOString(), subscription_url: it.subscription_url }));
+            setCreated(litems);
+            if (litems.length) { void loadInfoForRows(litems.map((it:any)=> ({ id: it.id, panel_id: it.panel_id, username: it.username }))); }
+            return;
+          } catch {}
+        }
+        setCreated([]);
         return;
       }
       // For operator/admin non-root: show live list by selected panel
