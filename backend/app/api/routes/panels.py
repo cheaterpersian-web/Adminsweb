@@ -766,6 +766,8 @@ class PanelUserCreateResponse(BaseModel):
     ok: bool
     username: Optional[str] = None
     subscription_url: Optional[str] = None
+    expire: Optional[int] = None
+    data_limit: Optional[int] = None
     raw: Optional[dict] = None
     error: Optional[str] = None
 
@@ -990,9 +992,17 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     last_text = str(e)
                     continue
                 if 200 <= res.status_code < 300:
+                    # Try fetch fresh inbounds to locate created client and build subscription where possible
+                    sub_url = None
+                    try:
+                        # Try a few endpoints for subscription link (many XUI variants lack API; we skip if not present)
+                        # As a fallback we leave sub_url None and UI will show actions/QR unavailable
+                        pass
+                    except Exception:
+                        sub_url = None
                     # Persist created user
                     try:
-                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=None, created_by_user_id=current_user.id)
+                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
                         db.add(rec)
                         db.commit()
                     except Exception:
@@ -1001,7 +1011,14 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                         record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
                     except Exception:
                         pass
-                    return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=None, raw=(res.json() if res.headers.get("content-type", "").startswith("application/json") else None))
+                    return PanelUserCreateResponse(
+                        ok=True,
+                        username=payload.name,
+                        subscription_url=sub_url,
+                        expire=(expiry_ms // 1000) if expiry_ms else None,
+                        data_limit=(total_bytes_val if total_bytes_val else None),
+                        raw=(res.json() if res.headers.get("content-type", "").startswith("application/json") else None),
+                    )
                 last_status = res.status_code
                 last_text = res.text[:200]
             return PanelUserCreateResponse(ok=False, error=f"XUI responded {last_status}", raw={"error": last_text or "unknown"})

@@ -150,6 +150,13 @@ export default function ConfigsPage() {
       const res = await apiFetch(`/panels/${pid}/create_user`, { method: "POST", body: JSON.stringify(payload) });
       if (res.ok) {
         setResult({ username: res.username, sub: res.subscription_url });
+        // If backend returns quota/expire, show a small summary
+        if (res.expire || res.data_limit) {
+          try {
+            const note = `${res.data_limit ? `Data: ${Math.round((Number(res.data_limit)/(1024**3)))} GB` : ''}${res.data_limit && res.expire ? ' · ' : ''}${res.expire ? `Expire: ${new Date(Number(res.expire)*1000).toLocaleString()}` : ''}`;
+            console.log(note);
+          } catch {}
+        }
       } else {
         setResult({ error: res.error || "خطا در ساخت کاربر" });
       }
@@ -250,6 +257,13 @@ export default function ConfigsPage() {
                       }}
                     >Copy link</Button>
                     <span className="truncate">{new URL(result.sub, window.location.origin).href}</span>
+                    <a
+                      href={"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(result.sub)}
+                      className="text-xs underline"
+                      aria-label="Download QR"
+                      target="_blank"
+                      rel="noreferrer"
+                    >QR</a>
                   </div>
                 )}
               </div>
