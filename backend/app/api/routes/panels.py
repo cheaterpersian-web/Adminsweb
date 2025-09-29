@@ -341,6 +341,63 @@ async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current
         return PanelUsersResponse(items=items)
 
 
+class PanelUserListItemWithPanel(BaseModel):
+    panel_id: int
+    username: str
+    status: Optional[str] = None
+    data_limit: Optional[int] = None
+    expire: Optional[int] = None
+    subscription_url: Optional[str] = None
+
+
+class PanelUsersByUserResponse(BaseModel):
+    items: list[PanelUserListItemWithPanel]
+
+
+@router.get("/panels/users/by-user/{user_id}", response_model=PanelUsersByUserResponse)
+async def list_panel_users_by_user(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    # Find panels with stored credentials for this operator
+    records = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user_id).all()
+    if not records:
+        return PanelUsersByUserResponse(items=[])
+    items: list[PanelUserListItemWithPanel] = []
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        for rec in records:
+            panel = db.query(Panel).filter(Panel.id == rec.panel_id).first()
+            if not panel:
+                continue
+            # Login with operator's panel credentials
+            token = await _login_get_token(panel.base_url, rec.username, rec.password)
+            if not token:
+                continue
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                r = await client.get(panel.base_url.rstrip("/") + "/api/users", headers=headers)
+                if not r.headers.get("content-type", "").startswith("application/json"):
+                    continue
+                data = r.json()
+                if isinstance(data, dict) and isinstance(data.get("items"), list):
+                    src = data["items"]
+                elif isinstance(data, list):
+                    src = data
+                else:
+                    src = []
+                for it in src:
+                    if not isinstance(it, dict):
+                        continue
+                    items.append(PanelUserListItemWithPanel(
+                        panel_id=panel.id,
+                        username=str(it.get("username") or it.get("name") or ""),
+                        status=it.get("status"),
+                        data_limit=it.get("data_limit"),
+                        expire=it.get("expire"),
+                        subscription_url=_canonicalize_subscription_url(panel.base_url, it.get("subscription_url") or it.get("subscription") or None),
+                    ))
+            except Exception:
+                continue
+    return PanelUsersByUserResponse(items=items)
+
+
 class PanelInboundSelectRequest(BaseModel):
     inbound_ids: list[str]
 

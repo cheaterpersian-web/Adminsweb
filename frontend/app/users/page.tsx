@@ -189,6 +189,16 @@ function ViewCreatedConfigs({ userId }: { userId: number }) {
   const load = async () => {
     setLoading(true);
     try {
+      // Try live list by user (aggregated across panels via stored credentials)
+      try {
+        const live = await apiFetch(`/panels/users/by-user/${userId}`);
+        if (live && Array.isArray(live.items)) {
+          setItems(live.items);
+          setLoading(false);
+          return;
+        }
+      } catch {}
+      // Fallback to local created DB records
       const res = await apiFetch(`/panels/created/by-user/${userId}`);
       setItems(res?.items || []);
     } finally { setLoading(false); }
@@ -210,7 +220,9 @@ function ViewCreatedConfigs({ userId }: { userId: number }) {
                   <tr>
                     <th className="p-2 text-left">Panel</th>
                     <th className="p-2 text-left">Username</th>
-                    <th className="p-2 text-left">Created</th>
+                    <th className="p-2 text-left">Status</th>
+                    <th className="p-2 text-left">Data</th>
+                    <th className="p-2 text-left">Expire</th>
                     <th className="p-2 text-left">Subscription</th>
                   </tr>
                 </thead>
@@ -219,7 +231,9 @@ function ViewCreatedConfigs({ userId }: { userId: number }) {
                     <tr key={r.id} className="border-t">
                       <td className="p-2">{r.panel_id}</td>
                       <td className="p-2">{r.username}</td>
-                      <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
+                      <td className="p-2">{r.status || '-'}</td>
+                      <td className="p-2">{typeof r.data_limit === 'number' ? (r.data_limit === 0 ? '∞' : `${Math.round(r.data_limit / (1024**3))} GB`) : '-'}</td>
+                      <td className="p-2">{typeof r.expire === 'number' && r.expire > 0 ? new Date(r.expire * 1000).toLocaleString() : '-'}</td>
                       <td className="p-2 truncate">
                         {r.subscription_url ? (
                           <a className="underline" href={r.subscription_url} target="_blank" rel="noreferrer">Open</a>
@@ -230,7 +244,7 @@ function ViewCreatedConfigs({ userId }: { userId: number }) {
                     </tr>
                   ))}
                   {items && items.length === 0 && (
-                    <tr><td className="p-3 text-muted-foreground" colSpan={4}>Empty</td></tr>
+                    <tr><td className="p-3 text-muted-foreground" colSpan={6}>Empty</td></tr>
                   )}
                 </tbody>
               </table>
