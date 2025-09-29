@@ -268,21 +268,40 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
     # XUI: cookie-based and endpoints differ
     if getattr(panel, "type", "marzban") == "xui":
         async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
-            # login
+            # login (try several field variants)
             logged_in = False
+            login_variants = [
+                {"username": panel.username, "password": panel.password},
+                {"username": panel.username, "password": panel.password, "remember": "on"},
+                {"username": panel.username, "password": panel.password, "remember_me": "true"},
+            ]
             for path in ("/xui/login", "/login"):
-                try:
-                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": panel.username, "password": panel.password})
-                    if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
-                        logged_in = True
-                        break
-                except Exception:
-                    continue
+                for body in login_variants:
+                    try:
+                        r = await client.post(panel.base_url.rstrip("/") + path, data=body)
+                        if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                            logged_in = True
+                            break
+                    except Exception:
+                        continue
+                if logged_in:
+                    break
             if not logged_in:
                 raise HTTPException(status_code=502, detail="Login to XUI failed")
             # fetch inbounds via common XUI endpoints
             data = None
-            for ep in ("/xui/api/inbounds/list", "/xui/inbounds", "/panel/inbounds"):
+            endpoints = (
+                "/xui/api/inbounds/list",
+                "/xui/api/inbounds",
+                "/xui/API/inbounds",
+                "/xui/inbound/list",
+                "/xui/inbounds/list",
+                "/panel/api/inbounds/list",
+                "/panel/inbounds/list",
+                "/panel/inbounds",
+                "/api/inbounds",
+            )
+            for ep in endpoints:
                 try:
                     res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
                     if res.headers.get("content-type", "").startswith("application/json"):
@@ -292,24 +311,30 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
                     continue
             items: list[InboundItem] = []
             if isinstance(data, dict):
-                # variants: { obj: [...] } or { inbounds: [...] } or { items: [...] }
+                # variants: { obj: [...] } or { inbounds: [...] } or { items: [...] } or { data: [...] } or { list: [...] }
                 candidates = None
-                for key in ("obj", "inbounds", "items"):
+                for key in ("obj", "inbounds", "items", "data", "list"):
                     if isinstance(data.get(key), list):
                         candidates = data.get(key)
                         break
+                # sometimes nested under data: { data: { items: [...] } }
+                if candidates is None and isinstance(data.get("data"), dict):
+                    for key in ("items", "inbounds", "list", "obj"):
+                        if isinstance(data["data"].get(key), list):
+                            candidates = data["data"][key]
+                            break
                 if isinstance(candidates, list):
                     for it in candidates:
                         if not isinstance(it, dict):
                             continue
-                        iid = str(it.get("id") or it.get("tag") or it.get("remark") or "")
+                        iid = str(it.get("id") or it.get("tag") or it.get("remark") or it.get("listen") or "")
                         remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
                         items.append(InboundItem(id=iid, tag=str(it.get("tag") or None) or None, remark=remark or None))
             elif isinstance(data, list):
                 for it in data:
                     if not isinstance(it, dict):
                         continue
-                    iid = str(it.get("id") or it.get("tag") or it.get("remark") or "")
+                    iid = str(it.get("id") or it.get("tag") or it.get("remark") or it.get("listen") or "")
                     remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
                     items.append(InboundItem(id=iid, tag=str(it.get("tag") or None) or None, remark=remark or None))
             return PanelInboundsResponse(items=items)
