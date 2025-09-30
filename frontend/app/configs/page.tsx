@@ -149,7 +149,15 @@ export default function ConfigsPage() {
       const payload = { name, plan_id: parseInt(planId, 10) };
       const res = await apiFetch(`/panels/${pid}/create_user`, { method: "POST", body: JSON.stringify(payload) });
       if (res.ok) {
-        setResult({ username: res.username, sub: res.subscription_url });
+        let sub = res.subscription_url as string | undefined;
+        // If no link (common on XUI), try fetching user info to construct share link
+        if (!sub) {
+          try {
+            const info = await apiFetch(`/panels/${pid}/user/${encodeURIComponent(payload.name)}/info`);
+            if (info && info.subscription_url) sub = info.subscription_url;
+          } catch {}
+        }
+        setResult({ username: res.username, sub });
         // If backend returns quota/expire, show a small summary
         if (res.expire || res.data_limit) {
           try {
@@ -296,32 +304,36 @@ export default function ConfigsPage() {
                     <td className="p-2">{r.panel_id}</td>
                     <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
                     <td className="p-2 truncate">
-                      {r.subscription_url ? (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          aria-label="Copy subscription URL"
-                          onClick={async()=>{
-                            try {
-                              await navigator.clipboard.writeText(r.subscription_url);
-                              setCopied(s=>({ ...s, [r.id]: true }));
-                              setTimeout(()=> setCopied(s=>({ ...s, [r.id]: false })), 1500);
-                            } catch {}
-                          }}
-                        >{copied[r.id] ? "Copied" : "Copy link"}</Button>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                      {r.subscription_url && (
-                        <a
-                          href={"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(r.subscription_url)}
-                          className="ml-2 text-xs underline"
-                          aria-label="Download QR"
-                          target="_blank"
-                          rel="noreferrer"
-                        >QR</a>
-                      )}
+                      {(() => {
+                        const info = userInfo[r.id];
+                        const link = (r.subscription_url || (info && info.subscription_url)) as string | undefined;
+                        return link ? (
+                          <>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              aria-label="Copy subscription URL"
+                              onClick={async()=>{
+                                try {
+                                  await navigator.clipboard.writeText(link);
+                                  setCopied(s=>({ ...s, [r.id]: true }));
+                                  setTimeout(()=> setCopied(s=>({ ...s, [r.id]: false })), 1500);
+                                } catch {}
+                              }}
+                            >{copied[r.id] ? "Copied" : "Copy link"}</Button>
+                            <a
+                              href={"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=" + encodeURIComponent(link)}
+                              className="ml-2 text-xs underline"
+                              aria-label="Download QR"
+                              target="_blank"
+                              rel="noreferrer"
+                            >QR</a>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        );
+                      })()}
                     </td>
                     <td className="p-2">
                       {userInfo[r.id] ? (
