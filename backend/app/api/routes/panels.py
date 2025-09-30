@@ -1462,7 +1462,12 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             except Exception:
                 data = {}
         else:
-            data = {"raw_text": await res.aread()}
+            try:
+                raw_bytes = await res.aread()
+                raw_text = raw_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                raw_text = ""
+            data = {"raw_text": raw_text}
 
         if 200 <= res.status_code < 300:
             sub_url = await _extract_subscription_url(panel.base_url, data)
