@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/configs", response_model=List[ConfigRead])
-def list_configs(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+def list_configs(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
     return db.query(Config).order_by(Config.id.desc()).all()
 
 
@@ -61,7 +61,7 @@ async def delete_config(config_id: int, db: Session = Depends(get_db), current_u
 
 
 @router.get("/configs/{config_id}/download")
-async def download_config(config_id: int, sig: str = Query(...), exp: int = Query(...), db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+async def download_config(config_id: int, sig: str = Query(...), exp: int = Query(...), db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
     cfg = db.query(Config).filter(Config.id == config_id).first()
     if not cfg:
         raise HTTPException(status_code=404, detail="Config not found")

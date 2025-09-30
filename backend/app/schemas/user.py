@@ -6,7 +6,7 @@ class UserBase(BaseModel):
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
-    role: str = "viewer"
+    role: str = "operator"
     is_active: bool = True
 
 
