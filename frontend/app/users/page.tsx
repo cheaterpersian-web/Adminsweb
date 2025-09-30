@@ -129,6 +129,7 @@ export default function UsersPage() {
                     {u.is_active ? "Disable" : "Enable"}
                   </Button>
                   <PasswordReset userId={u.id} onSaved={load} />
+                  <PanelCreds userId={u.id} />
                   <ViewCreatedConfigs userId={u.id} />
                 </td>
                 <td className="p-2">
@@ -175,6 +176,55 @@ function PasswordReset({ userId, onSaved }: { userId: number; onSaved: ()=>void 
                 try { await apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify({ password: pwd }) }); onSaved(); setOpen(false); setPwd(""); } finally { setBusy(false); }
               }}>Save</Button>
             </div>
+          </div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function PanelCreds({ userId }: { userId: number }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<any[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/users/${userId}/panel-credentials`);
+      setItems(Array.isArray(res) ? res : []);
+    } finally { setLoading(false); }
+  };
+  return (
+    <span>
+      <Button variant="outline" size="sm" onClick={()=>{ setOpen(true); if (items===null) void load(); }}>Credentials</Button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-background border rounded-md p-4 w-[480px] max-h-[80vh] overflow-auto">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-semibold">Panel Credentials</div>
+              <Button variant="outline" size="sm" onClick={()=>setOpen(false)}>Close</Button>
+            </div>
+            {loading && <div className="text-sm text-muted-foreground">Loading…</div>}
+            {!loading && (
+              <div className="space-y-2">
+                {(items||[]).map((it:any)=> (
+                  <div key={it.panel_id} className="border rounded-md p-2 text-sm">
+                    <div className="font-medium mb-1">{it.panel_name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-muted-foreground">Username:</span>
+                      <span className="select-all">{it.username}</span>
+                      <Button variant="outline" size="xs" onClick={()=>navigator.clipboard.writeText(it.username)}>Copy</Button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-muted-foreground">Password:</span>
+                      <input className="border rounded-md h-8 px-2" type="text" readOnly value={it.password} />
+                      <Button variant="outline" size="xs" onClick={()=>navigator.clipboard.writeText(it.password)}>Copy</Button>
+                    </div>
+                  </div>
+                ))}
+                {items && items.length===0 && <div className="text-sm text-muted-foreground">No credentials</div>}
+              </div>
+            )}
           </div>
         </div>
       )}
