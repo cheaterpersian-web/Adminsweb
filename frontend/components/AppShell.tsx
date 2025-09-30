@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import AuthGuard from "./AuthGuard";
 import Topbar from "./Topbar";
+import PageTransition from "./PageTransition";
+import ThreeBackground from "./ThreeBackground";
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
@@ -17,9 +19,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <AuthGuard>
       <div className="min-h-screen flex flex-col relative">
         <div className="neon-bg" />
+        <ThreeBackground />
         <Topbar />
         <div className="flex-1">
-          <div className="mx-auto max-w-6xl px-4 py-6 animate-fade">{children}</div>
+          <div className="mx-auto max-w-6xl px-4 py-6">
+            <PageTransition>{children}</PageTransition>
+          </div>
         </div>
         <footer className="site-footer">
           <div className="mx-auto max-w-6xl px-4 py-3 flex items-center justify-between">
