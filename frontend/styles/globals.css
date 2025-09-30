@@ -110,6 +110,31 @@ body {
   background: linear-gradient(180deg, transparent, hsl(var(--brand-end) / 0.05));
 }
 
+/* Glitch effect */
+.glitch::before,
+.glitch::after {
+  content: attr(data-text);
+  position: absolute;
+  left: 0;
+  top: 0;
+  text-shadow: -1px 0 hsl(var(--neon-cyan)), 1px 0 hsl(var(--neon-pink));
+  overflow: hidden;
+  clip-path: inset(0 0 0 0);
+  animation: glitch-clip 2s infinite ease-in-out alternate-reverse;
+}
+.glitch::after {
+  animation-delay: -1s;
+  text-shadow: 1px 0 hsl(var(--neon-cyan)), -1px 0 hsl(var(--neon-pink));
+}
+@keyframes glitch-clip {
+  0% { clip-path: inset(0 0 90% 0); transform: translate(-1px, -1px); }
+  20% { clip-path: inset(10% 0 80% 0); transform: translate(1px, 1px); }
+  40% { clip-path: inset(30% 0 50% 0); transform: translate(-1px, 1px); }
+  60% { clip-path: inset(60% 0 20% 0); transform: translate(1px, -1px); }
+  80% { clip-path: inset(20% 0 70% 0); transform: translate(-0.5px, 0.5px); }
+  100% { clip-path: inset(85% 0 0 0); transform: translate(0, 0); }
+}
+
 ::selection {
   background-color: hsl(var(--primary) / 0.2);
 }

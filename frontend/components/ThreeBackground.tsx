@@ -2,6 +2,9 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 export default function ThreeBackground() {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -23,6 +26,13 @@ export default function ThreeBackground() {
     renderer.domElement.style.zIndex = "-1";
     container.appendChild(renderer.domElement);
 
+    // Postprocessing
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.65, 0.8, 0.85);
+    composer.addPass(bloom);
+
     // Neon grid plane
     const grid = new THREE.GridHelper(200, 80, new THREE.Color("#19fbff"), new THREE.Color("#ff00e1"));
     grid.material.depthWrite = false;
@@ -43,6 +53,20 @@ export default function ThreeBackground() {
       scene.add(ln);
     }
 
+    // Starfield particles
+    const starGeom = new THREE.BufferGeometry();
+    const starCount = 600;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+      starPositions[i * 3 + 0] = (Math.random() - 0.5) * 120;
+      starPositions[i * 3 + 1] = (Math.random() - 0.5) * 60;
+      starPositions[i * 3 + 2] = -60 + Math.random() * 40;
+    }
+    starGeom.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
+    const starMat = new THREE.PointsMaterial({ color: new THREE.Color("#a855f7"), size: 0.08, transparent: true, opacity: 0.8 });
+    const stars = new THREE.Points(starGeom, starMat);
+    scene.add(stars);
+
     const clock = new THREE.Clock();
     const animate = () => {
       const t = clock.getElapsedTime();
@@ -55,7 +79,8 @@ export default function ThreeBackground() {
         pos.setZ(1, z + 4);
         pos.needsUpdate = true;
       });
-      renderer.render(scene, camera);
+      stars.rotation.z = t * 0.03;
+      composer.render();
       raf = requestAnimationFrame(animate);
     };
     let raf = requestAnimationFrame(animate);
@@ -70,12 +95,14 @@ export default function ThreeBackground() {
     cleanupRef.current = () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      composer.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
-      scene.traverse(obj => {
-        if ((obj as any).geometry) (obj as any).geometry.dispose();
-        if ((obj as any).material) {
-          const m = (obj as any).material;
+      scene.traverse((obj: THREE.Object3D) => {
+        const anyObj = obj as any;
+        if (anyObj.geometry) anyObj.geometry.dispose();
+        if (anyObj.material) {
+          const m = anyObj.material;
           if (Array.isArray(m)) m.forEach(mm => mm.dispose()); else m.dispose();
         }
       });

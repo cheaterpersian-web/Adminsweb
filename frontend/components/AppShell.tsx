@@ -6,6 +6,8 @@ import AuthGuard from "./AuthGuard";
 import Topbar from "./Topbar";
 import PageTransition from "./PageTransition";
 import ThreeBackground from "./ThreeBackground";
+import ParallaxLayers from "./ParallaxLayers";
+import CursorTrail from "./CursorTrail";
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
@@ -19,6 +21,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <AuthGuard>
       <div className="min-h-screen flex flex-col relative">
         <div className="neon-bg" />
+        <ParallaxLayers />
+        <CursorTrail />
         <ThreeBackground />
         <Topbar />
         <div className="flex-1">
