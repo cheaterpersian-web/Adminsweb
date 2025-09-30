@@ -854,6 +854,121 @@ def _canonicalize_subscription_url(base_url: str, subscription_url: Optional[str
         return urlunparse((b.scheme, b.netloc, s.path or "/sub", "", s.query, ""))
     except Exception:
         return subscription_url
+def _xui_build_share_link(base_url: str, inbound: dict, client_email: str, client_id: Optional[str]) -> Optional[str]:
+    try:
+        b = urlparse(base_url)
+        host = b.hostname or ""
+        proto = str(inbound.get("protocol") or "").lower()
+        port = str(inbound.get("port") or "")
+        stream = inbound.get("streamSettings") or {}
+        if isinstance(stream, str):
+            try:
+                stream = json.loads(stream)
+            except Exception:
+                stream = {}
+        network = str(stream.get("network") or "tcp").lower()
+        security = str(stream.get("security") or "").lower()
+        params: list[tuple[str, str]] = []
+        tag_name = client_email
+
+        if proto == "vless":
+            # vless://UUID@host:port?encryption=none&security=...&type=...&path=...&host=...&sni=...#name
+            uuid = client_id or ""
+            if not uuid:
+                return None
+            params.append(("encryption", "none"))
+            if security:
+                params.append(("security", security))
+                if security == "tls":
+                    tls = stream.get("tlsSettings") or {}
+                    sni = tls.get("serverName") or tls.get("server_name")
+                    if sni:
+                        params.append(("sni", str(sni)))
+                    alpn = tls.get("alpn")
+                    if isinstance(alpn, list) and alpn:
+                        params.append(("alpn", ",".join(alpn)))
+                if security == "reality":
+                    rs = stream.get("realitySettings") or {}
+                    pbk = rs.get("publicKey")
+                    if pbk:
+                        params.append(("pbk", str(pbk)))
+                    sid = rs.get("shortIds")
+                    if isinstance(sid, list) and sid:
+                        params.append(("sid", sid[0]))
+                    sni = None
+                    sn = rs.get("serverNames")
+                    if isinstance(sn, list) and sn:
+                        sni = sn[0]
+                    if sni:
+                        params.append(("sni", str(sni)))
+            # transport
+            params.append(("type", network))
+            if network == "ws":
+                ws = stream.get("wsSettings") or {}
+                path = ws.get("path") or "/"
+                params.append(("path", str(path)))
+                headers = ws.get("headers") or {}
+                hhost = headers.get("Host") or headers.get("host")
+                if hhost:
+                    params.append(("host", str(hhost)))
+            elif network == "grpc":
+                gs = stream.get("grpcSettings") or {}
+                service = gs.get("serviceName") or "grpc"
+                params.append(("serviceName", str(service)))
+
+            query = "&".join([f"{k}={str(v)}" for k, v in params])
+            return f"vless://{uuid}@{host}:{port}?{query}#{tag_name}"
+
+        if proto == "vmess":
+            # vmess base64(JSON)
+            uuid = client_id or ""
+            if not uuid:
+                return None
+            tls_flag = "tls" if security in ("tls", "reality") else ""
+            ws = stream.get("wsSettings") or {}
+            gs = stream.get("grpcSettings") or {}
+            vm = {
+                "v": "2",
+                "ps": tag_name,
+                "add": host,
+                "port": str(port),
+                "id": uuid,
+                "aid": "0",
+                "net": network,
+                "type": "",
+                "host": (ws.get("headers") or {}).get("Host") or "",
+                "path": ws.get("path") or "",
+                "tls": tls_flag,
+                "sni": (stream.get("tlsSettings") or {}).get("serverName") or "",
+                "alpn": ",".join((stream.get("tlsSettings") or {}).get("alpn") or []) if (stream.get("tlsSettings") or {}).get("alpn") else "",
+                "fp": (stream.get("realitySettings") or {}).get("fingerprint") or "",
+                "serviceName": gs.get("serviceName") or "",
+            }
+            import base64
+            b64 = base64.b64encode(json.dumps(vm, separators=(",", ":")).encode()).decode()
+            return f"vmess://{b64}"
+
+        # trojan minimal (if present)
+        if proto == "trojan":
+            pwd = client_id or ""
+            if not pwd:
+                return None
+            if security:
+                params.append(("security", security))
+            if network == "ws":
+                ws = stream.get("wsSettings") or {}
+                path = ws.get("path") or "/"
+                params.append(("type", "ws"))
+                params.append(("path", str(path)))
+                headers = ws.get("headers") or {}
+                hhost = headers.get("Host") or headers.get("host")
+                if hhost:
+                    params.append(("host", str(hhost)))
+            q = "&".join([f"{k}={str(v)}" for k, v in params])
+            return f"trojan://{pwd}@{host}:{port}?{q}#{tag_name}"
+    except Exception:
+        return None
+    return None
 
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
@@ -995,9 +1110,50 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     # Try fetch fresh inbounds to locate created client and build subscription where possible
                     sub_url = None
                     try:
-                        # Try a few endpoints for subscription link (many XUI variants lack API; we skip if not present)
-                        # As a fallback we leave sub_url None and UI will show actions/QR unavailable
-                        pass
+                        # fetch inbounds to find the one we used and construct a share link
+                        inb = None
+                        for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/panel/api/inbounds/list", "/panel/inbounds"):
+                            try:
+                                g = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                                if g.headers.get("content-type", "").startswith("application/json"):
+                                    dj = g.json()
+                                    arr = None
+                                    if isinstance(dj, dict):
+                                        for k in ("obj", "inbounds", "items", "data", "list"):
+                                            if isinstance(dj.get(k), list):
+                                                arr = dj.get(k)
+                                                break
+                                        if arr is None and isinstance(dj.get("data"), dict):
+                                            for k in ("items", "inbounds", "list", "obj"):
+                                                if isinstance(dj["data"].get(k), list):
+                                                    arr = dj["data"][k]
+                                                    break
+                                    elif isinstance(dj, list):
+                                        arr = dj
+                                    if isinstance(arr, list):
+                                        for it in arr:
+                                            if not isinstance(it, dict):
+                                                continue
+                                            if str(it.get("id") or it.get("tag") or it.get("remark") or "") == str(inbound_id) or str(it.get("tag") or "") == str(inbound_id):
+                                                inb = it
+                                                break
+                                    if inb:
+                                        break
+                            except Exception:
+                                continue
+                        if inb:
+                            # Try grabbing client UUID from last response (if server returns it)
+                            client_uuid = None
+                            try:
+                                j = res.json()
+                                if isinstance(j, dict):
+                                    for k in ("id", "uuid", "clientId", "client_id"):
+                                        if isinstance(j.get(k), str):
+                                            client_uuid = j.get(k)
+                                            break
+                            except Exception:
+                                client_uuid = None
+                            sub_url = _xui_build_share_link(panel.base_url, inb, payload.name, client_uuid)
                     except Exception:
                         sub_url = None
                     # Persist created user
