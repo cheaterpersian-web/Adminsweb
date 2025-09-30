@@ -424,7 +424,7 @@ class PanelUsersResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/users", response_model=PanelUsersResponse)
-async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -692,7 +692,7 @@ class PanelUserInfoResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/user/{username}/info", response_model=PanelUserInfoResponse)
-async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1093,7 +1093,7 @@ def _xui_build_share_link(base_url: str, inbound: dict, client_email: str, clien
 
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
-async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1534,7 +1534,7 @@ class PanelUserDeleteResponse(BaseModel):
 
 
 @router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
-async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1572,7 +1572,7 @@ class PanelUserStatusRequest(BaseModel):
 
 
 @router.post("/panels/{panel_id}/user/{username}/status")
-async def set_user_status(panel_id: int, username: str, payload: PanelUserStatusRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def set_user_status(panel_id: int, username: str, payload: PanelUserStatusRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1737,7 +1737,7 @@ class PanelUserExtendRequest(BaseModel):
 
 
 @router.post("/panels/{panel_id}/user/{username}/extend")
-async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserExtendRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserExtendRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
