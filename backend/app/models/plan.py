@@ -4,7 +4,7 @@ from app.db.base import Base
 
 class Plan(Base):
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False, unique=True)
+    name = Column(String(100), nullable=False)
 
     # Quota in megabytes (nullable when unlimited)
     data_quota_mb = Column(BigInteger, nullable=True)

@@ -251,7 +251,7 @@ export default function PlansPage() {
           </div>
         </CardContent>
         <CardFooter>
-          <Button onClick={create} disabled={saving || !name}>Create</Button>
+          <Button onClick={create} disabled={saving}>Create</Button>
         </CardFooter>
       </Card>
 
@@ -314,7 +314,7 @@ export default function PlansPage() {
                 {editId === p.id ? (
                   <>
                     <Button variant="outline" size="sm" onClick={cancelEdit} disabled={savingEdit}>Cancel</Button>
-                    <Button size="sm" onClick={() => saveEdit(p.id)} disabled={savingEdit || !eName}>Save</Button>
+                    <Button size="sm" onClick={() => saveEdit(p.id)} disabled={savingEdit}>Save</Button>
                   </>
                 ) : (
                   <>

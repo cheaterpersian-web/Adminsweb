@@ -27,8 +27,7 @@ def create_plan(payload: PlanCreate, _: Depends = Depends(require_root_admin), d
     else:
         duration_days = payload.duration_days or 0
 
-    if db.query(Plan).filter(Plan.name == payload.name).first():
-        raise HTTPException(status_code=400, detail="Plan with this name already exists")
+    # Allow duplicate names per request
 
     plan = Plan(
         name=payload.name,
@@ -53,9 +52,6 @@ def update_plan(plan_id: int, payload: PlanUpdate, _: Depends = Depends(require_
         raise HTTPException(status_code=404, detail="Plan not found")
 
     if payload.name is not None:
-        exists = db.query(Plan).filter(Plan.name == payload.name, Plan.id != plan_id).first()
-        if exists:
-            raise HTTPException(status_code=400, detail="Plan name already in use")
         plan.name = payload.name
 
     if payload.is_data_unlimited is not None:
