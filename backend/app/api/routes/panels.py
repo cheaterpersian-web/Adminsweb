@@ -1209,8 +1209,9 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     # Try fetch fresh inbounds to locate created client and build subscription where possible
                     sub_url = None
                     try:
-                        # fetch inbounds to find the one we used and construct a share link
+                        # fetch inbounds
                         inb = None
+                        clients_for_inb = []
                         for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/panel/api/inbounds/list", "/panel/inbounds"):
                             try:
                                 g = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
@@ -1235,24 +1236,53 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                                                 continue
                                             if str(it.get("id") or it.get("tag") or it.get("remark") or "") == str(inbound_id) or str(it.get("tag") or "") == str(inbound_id):
                                                 inb = it
+                                                # extract clients list
+                                                settings = inb.get("settings")
+                                                if isinstance(settings, str):
+                                                    try:
+                                                        settings = json.loads(settings)
+                                                    except Exception:
+                                                        settings = None
+                                                if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
+                                                    clients_for_inb = settings.get("clients")
+                                                elif isinstance(inb.get("clients"), list):
+                                                    clients_for_inb = inb.get("clients")
                                                 break
                                     if inb:
                                         break
                             except Exception:
                                 continue
                         if inb:
-                            # Try grabbing client UUID from last response (if server returns it)
                             client_uuid = None
-                            try:
-                                j = res.json()
-                                if isinstance(j, dict):
+                            client_password = None
+                            # try to find our client by email/name
+                            for c in (clients_for_inb or []):
+                                if not isinstance(c, dict):
+                                    continue
+                                email = str(c.get("email") or c.get("name") or c.get("username") or "")
+                                if email == payload.name:
                                     for k in ("id", "uuid", "clientId", "client_id"):
-                                        if isinstance(j.get(k), str):
-                                            client_uuid = j.get(k)
+                                        if isinstance(c.get(k), str):
+                                            client_uuid = c.get(k)
                                             break
-                            except Exception:
-                                client_uuid = None
-                            sub_url = _xui_build_share_link(panel.base_url, inb, payload.name, client_uuid)
+                                    # trojan often uses password
+                                    if isinstance(c.get("password"), str):
+                                        client_password = c.get("password")
+                                    break
+                            # If response JSON has the id
+                            if not client_uuid:
+                                try:
+                                    j = res.json()
+                                    if isinstance(j, dict):
+                                        for k in ("id", "uuid", "clientId", "client_id"):
+                                            if isinstance(j.get(k), str):
+                                                client_uuid = j.get(k)
+                                                break
+                                except Exception:
+                                    pass
+                            # pick identifier: uuid or password
+                            ident = client_uuid or client_password
+                            sub_url = _xui_build_share_link(panel.base_url, inb, payload.name, ident)
                     except Exception:
                         sub_url = None
                     # Persist created user
