@@ -186,6 +186,14 @@ export default function ConfigsPage() {
           if (def && typeof def.id === 'number') pid = Number(def.id);
         } catch {}
       }
+      // Ensure operator has access to this panel; otherwise fallback to first of /panels/my
+      try {
+        const mine = await apiFetch("/panels/my");
+        if (Array.isArray(mine) && mine.length > 0) {
+          const ok = mine.some((p:any)=> Number(p.id) === Number(pid));
+          if (!ok) pid = Number(mine[0].id);
+        }
+      } catch {}
       if (!pid) {
         setResult({ error: "پنل مقصد مشخص نیست" });
         return;
@@ -210,7 +218,7 @@ export default function ConfigsPage() {
           } catch {}
         }
       } else {
-        setResult({ error: res.error || "خطا در ساخت کاربر" });
+        setResult({ error: res.error || res.detail || "خطا در ساخت کاربر" });
       }
     } catch (e:any) {
       setResult({ error: e.message || "خطا" });
