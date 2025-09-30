@@ -173,7 +173,23 @@ export default function ConfigsPage() {
     setBusy(true);
     setResult(null);
     try {
-      const pid = parseInt(panelId, 10);
+      let pid = parseInt(panelId, 10);
+      if (!pid) {
+        try {
+          const tpl = await apiFetch("/templates/assigned/me");
+          if (tpl && typeof tpl.panel_id === 'number') pid = Number(tpl.panel_id);
+        } catch {}
+      }
+      if (!pid) {
+        try {
+          const def = await apiFetch("/panels/default");
+          if (def && typeof def.id === 'number') pid = Number(def.id);
+        } catch {}
+      }
+      if (!pid) {
+        setResult({ error: "پنل مقصد مشخص نیست" });
+        return;
+      }
       const payload = { name, plan_id: parseInt(planId, 10) };
       const res = await apiFetch(`/panels/${pid}/create_user`, { method: "POST", body: JSON.stringify(payload) });
       if (res.ok) {
@@ -273,7 +289,7 @@ export default function ConfigsPage() {
               <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
             )}
             <div className="col-span-full flex flex-col sm:flex-row gap-2">
-              <Button type="submit" disabled={busy || !name || !planId || !panelId}>ایجاد کاربر</Button>
+              <Button type="submit" disabled={busy || !name || !planId || (isRootAdmin && !panelId)}>ایجاد کاربر</Button>
             </div>
             {result && result.error && <div className="col-span-full text-sm bg-red-500/10 text-red-600 border border-red-500/30 rounded-md p-2">{result.error}</div>}
             {result && !result.error && (
