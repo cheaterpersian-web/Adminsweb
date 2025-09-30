@@ -32,10 +32,29 @@ export default function ConfigsPage() {
         try { data = await apiFetch("/panels/my"); } catch {}
       }
       setPanels(data);
+      // If panelId still not set, try to use assigned template's panel id regardless of panels list
+      if (!panelId) {
+        try {
+          const tpl = await apiFetch("/templates/assigned/me");
+          if (tpl && typeof tpl.panel_id === 'number') {
+            setPanelId(String(tpl.panel_id));
+          }
+        } catch {}
+      }
       if (data.length && !panelId) {
-        // If any default exists, prefer it; otherwise first
-        const def = data.find((p:any)=> p.is_default);
-        setPanelId(String((def || data[0]).id));
+        // If operator has assigned template, auto-select that panel id
+        try {
+          const tpl = await apiFetch("/templates/assigned/me");
+          if (tpl && typeof tpl.panel_id === 'number') {
+            setPanelId(String(tpl.panel_id));
+          } else {
+            const def = data.find((p:any)=> p.is_default);
+            setPanelId(String((def || data[0]).id));
+          }
+        } catch {
+          const def = data.find((p:any)=> p.is_default);
+          setPanelId(String((def || data[0]).id));
+        }
       }
     } catch {}
   };
@@ -60,8 +79,17 @@ export default function ConfigsPage() {
   useEffect(() => {
     try {
       if (Array.isArray(panels) && panels.length > 0 && !panelId) {
-        const def = (panels as any[]).find((p:any)=> p.is_default);
-        setPanelId(String((def || panels[0]).id));
+        (async () => {
+          try {
+            const tpl = await apiFetch("/templates/assigned/me");
+            if (tpl && typeof tpl.panel_id === 'number') {
+              setPanelId(String(tpl.panel_id));
+              return;
+            }
+          } catch {}
+          const def = (panels as any[]).find((p:any)=> p.is_default);
+          setPanelId(String((def || panels[0]).id));
+        })();
       }
     } catch {}
   }, [panels]);

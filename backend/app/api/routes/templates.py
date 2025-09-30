@@ -2,7 +2,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_root_admin, require_roles
+from app.core.auth import require_root_admin, require_roles, get_current_user
+from app.models.user import User
 from app.db.session import get_db
 from app.models.template import Template, TemplateInbound, UserTemplate
 from app.schemas.template import TemplateCreate, TemplateRead, TemplateUpdate, AssignTemplateRequest
@@ -83,5 +84,16 @@ def assign_template(payload: AssignTemplateRequest, db: Session = Depends(get_db
 def get_assigned_template(user_id: int, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin)):
     rec = db.query(UserTemplate).filter(UserTemplate.user_id == user_id).first()
     return {"template_id": rec.template_id if rec else None}
+
+
+@router.get("/templates/assigned/me", response_model=TemplateRead | None)
+def get_assigned_template_me(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    rec = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+    if not rec:
+        return None
+    t = db.query(Template).filter(Template.id == rec.template_id).first()
+    if not t:
+        return None
+    return _template_to_read(db, t)
 
 
