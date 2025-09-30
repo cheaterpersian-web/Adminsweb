@@ -432,10 +432,23 @@ async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current
     cred_password = panel.password
     if current_user.role == "operator":
         rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+        if rec:
+            cred_username = rec.username
+            cred_password = rec.password
+        else:
+            # Fallback: allow using panel default credentials only if a template is assigned to this operator for this panel
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                if not ut:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                if not tpl or tpl.panel_id != panel_id:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+                # else: keep using panel.username/password
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
     # XUI branch
     if getattr(panel, "type", "marzban") == "xui":
         async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
@@ -786,10 +799,19 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
     cred_password = panel.password
     if current_user.role == "operator":
         rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+        if rec:
+            cred_username = rec.username
+            cred_password = rec.password
+        else:
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+                if not tpl or tpl.panel_id != panel_id:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
@@ -1082,10 +1104,19 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     cred_password = panel.password
     if current_user.role == "operator":
         rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+        if rec:
+            cred_username = rec.username
+            cred_password = rec.password
+        else:
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+                if not tpl or tpl.panel_id != panel_id:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
     # XUI branch: cookie-based login and addClient API
     if getattr(panel, "type", "marzban") == "xui":
         async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
