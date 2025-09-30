@@ -213,12 +213,12 @@ function PanelCreds({ userId }: { userId: number }) {
                     <div className="flex items-center gap-2">
                       <span className="text-muted-foreground">Username:</span>
                       <span className="select-all">{it.username}</span>
-                      <Button variant="outline" size="xs" onClick={()=>navigator.clipboard.writeText(it.username)}>Copy</Button>
+                      <Button variant="outline" size="sm" onClick={()=>navigator.clipboard.writeText(it.username)}>Copy</Button>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-muted-foreground">Password:</span>
                       <input className="border rounded-md h-8 px-2" type="text" readOnly value={it.password} />
-                      <Button variant="outline" size="xs" onClick={()=>navigator.clipboard.writeText(it.password)}>Copy</Button>
+                      <Button variant="outline" size="sm" onClick={()=>navigator.clipboard.writeText(it.password)}>Copy</Button>
                     </div>
                   </div>
                 ))}
