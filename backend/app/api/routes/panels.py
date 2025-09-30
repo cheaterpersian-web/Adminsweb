@@ -683,6 +683,105 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
+    # XUI branch: read clients from inbounds and construct share link
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            # login cookie
+            logged_in = False
+            for path in ("/xui/login", "/login"):
+                try:
+                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": panel.username, "password": panel.password, "remember": "on"})
+                    if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                        logged_in = True
+                        break
+                except Exception:
+                    continue
+            if not logged_in:
+                raise HTTPException(status_code=502, detail="Login to XUI failed")
+            # fetch inbounds
+            data = None
+            for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/xui/API/inbounds", "/panel/api/inbounds/list", "/panel/inbounds"):
+                try:
+                    res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                    if res.headers.get("content-type", "").startswith("application/json"):
+                        data = res.json()
+                        break
+                except Exception:
+                    continue
+            inbounds_list = None
+            if isinstance(data, dict):
+                for key in ("obj", "inbounds", "items", "data", "list"):
+                    v = data.get(key)
+                    if isinstance(v, list):
+                        inbounds_list = v
+                        break
+                if inbounds_list is None and isinstance(data.get("data"), dict):
+                    for key in ("items", "inbounds", "list", "obj"):
+                        if isinstance(data["data"].get(key), list):
+                            inbounds_list = data["data"][key]
+                            break
+            elif isinstance(data, list):
+                inbounds_list = data
+            # locate client
+            found = None
+            found_inbound = None
+            if isinstance(inbounds_list, list):
+                for inbound in inbounds_list:
+                    if not isinstance(inbound, dict):
+                        continue
+                    settings = inbound.get("settings")
+                    if isinstance(settings, str):
+                        try:
+                            settings = json.loads(settings)
+                        except Exception:
+                            settings = None
+                    clients = []
+                    if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
+                        clients = settings.get("clients")
+                    if not clients and isinstance(inbound.get("clients"), list):
+                        clients = inbound.get("clients")
+                    for c in clients:
+                        if not isinstance(c, dict):
+                            continue
+                        email = str(c.get("email") or c.get("name") or c.get("username") or "")
+                        if email == username:
+                            found = c
+                            found_inbound = inbound
+                            break
+                    if found:
+                        break
+            if not found:
+                raise HTTPException(status_code=404, detail="User not found on XUI")
+            # map fields
+            expire_ms = found.get("expiryTime") or found.get("expire")
+            expire_ts = None
+            if isinstance(expire_ms, (int, float)):
+                expire_ts = int(expire_ms / 1000) if expire_ms > 10**10 else int(expire_ms)
+            data_limit = found.get("totalGB")
+            if isinstance(data_limit, str):
+                try:
+                    data_limit = int(data_limit)
+                except Exception:
+                    data_limit = None
+            if isinstance(data_limit, (int, float)) and data_limit and data_limit < 10**9:
+                data_limit = int(data_limit) * (1024**3)
+            # build share link if possible
+            client_id = None
+            for k in ("id", "uuid", "clientId", "client_id"):
+                if isinstance(found.get(k), str):
+                    client_id = found.get(k)
+                    break
+            sub = _xui_build_share_link(panel.base_url, found_inbound or {}, username, client_id)
+            return PanelUserInfoResponse(
+                username=username,
+                data_limit=data_limit if isinstance(data_limit, int) else None,
+                used=None,
+                remaining=None,
+                expire=expire_ts,
+                expires_in=None,
+                status=None,
+                subscription_url=sub,
+            )
     cred_username = panel.username
     cred_password = panel.password
     if current_user.role == "operator":
