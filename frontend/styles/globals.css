@@ -25,6 +25,10 @@
   --radius: 0.6rem;
   --brand-start: 258 90% 66%;
   --brand-end: 198 96% 48%;
+  /* Neon cyberpunk accents */
+  --neon-pink: 317 100% 54%;
+  --neon-cyan: 189 100% 50%;
+  --neon-purple: 273 100% 60%;
 }
 
 .dark {
@@ -57,6 +61,53 @@ body {
     radial-gradient(60% 100% at 0% 0%, hsl(var(--brand-start) / 0.12) 0%, transparent 60%),
     radial-gradient(60% 100% at 100% 0%, hsl(var(--brand-end) / 0.12) 0%, transparent 60%);
   background-attachment: fixed;
+}
+
+/* Neon grid background layer */
+.neon-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(transparent 0 90%, hsl(var(--neon-cyan) / 0.08) 90% 100%),
+    linear-gradient(90deg, transparent 0 90%, hsl(var(--neon-pink) / 0.08) 90% 100%);
+  background-size: 30px 30px, 30px 30px;
+  mask-image: radial-gradient(ellipse at 50% -10%, black 20%, transparent 60%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% -10%, black 20%, transparent 60%);
+}
+
+/* Neon card style */
+.neon-card {
+  background: linear-gradient(180deg, hsl(var(--card) / 0.8), hsl(var(--card) / 0.6));
+  border: 1px solid hsl(var(--border) / 0.6);
+  box-shadow:
+    0 0 0.5px hsl(var(--neon-cyan) / 0.5),
+    0 0 24px hsl(var(--neon-cyan) / 0.06),
+    inset 0 0 12px hsl(var(--neon-purple) / 0.05);
+}
+
+.neon-text {
+  text-shadow: 0 0 8px hsl(var(--neon-pink) / 0.7), 0 0 24px hsl(var(--neon-cyan) / 0.4);
+}
+
+/* Glossy button effect */
+.btn-neon {
+  position: relative;
+  overflow: hidden;
+}
+.btn-neon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--neon-cyan) / 0.2), transparent);
+  transform: translateX(-100%);
+  animation: shine 1.6s ease-in-out infinite;
+}
+
+/* Footer branding */
+.site-footer {
+  @apply text-xs text-muted-foreground border-t;
+  background: linear-gradient(180deg, transparent, hsl(var(--brand-end) / 0.05));
 }
 
 ::selection {

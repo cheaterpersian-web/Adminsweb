@@ -65,7 +65,7 @@ export default function Topbar() {
             <span className="block w-4 h-0.5 bg-foreground mb-1"></span>
             <span className="block w-4 h-0.5 bg-foreground"></span>
           </button>
-          <Link href="/dashboard" className="font-semibold text-transparent bg-clip-text bg-gradient-to-r from-brand-start to-brand-end">Marzban Admin</Link>
+          <Link href="/dashboard" className="font-semibold text-transparent bg-clip-text bg-gradient-to-r from-brand-start to-brand-end drop-shadow-[0_0_8px_hsl(var(--neon-cyan)/0.4)]">Marzban Admin</Link>
           <nav className="hidden md:flex items-center gap-5 text-sm text-muted-foreground">
             <Link href="/dashboard" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Dashboard</Link>
             {isRootAdmin && <Link href="/users" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Users</Link>}
@@ -82,15 +82,15 @@ export default function Topbar() {
         <div className="flex items-center gap-2">
           {role === "operator" && (
             <>
-              <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow transition">
+              <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow-[0_0_20px_hsl(var(--neon-pink)/0.35)] transition">
                 Wallet: {walletBalance ? formatToman(walletBalance) : "-"}
               </Link>
-              <Link href="/wallet" className="inline-flex sm:hidden items-center rounded-full border px-2 py-1 text-xs font-medium hover:shadow transition">
+              <Link href="/wallet" className="inline-flex sm:hidden items-center rounded-full border px-2 py-1 text-xs font-medium hover:shadow-[0_0_20px_hsl(var(--neon-pink)/0.35)] transition">
                 {walletBalance ? formatToman(walletBalance) : "Wallet"}
               </Link>
             </>
           )}
-          <Button variant="default" size="sm" onClick={logout}>Logout</Button>
+          <Button variant="default" size="sm" className="btn-neon" onClick={logout}>Logout</Button>
         </div>
       </div>
       {open && (
@@ -104,7 +104,6 @@ export default function Topbar() {
             {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="py-2" onClick={()=>setOpen(false)}>Templates</Link>}
             {isRootAdmin && <Link href="/backup" className="py-2" onClick={()=>setOpen(false)}>Backup</Link>}
-            {/* Wallet balance shown in header near Logout on mobile; remove from list */}
             {isRootAdmin && <Link href="/wallets" className="py-2" onClick={()=>setOpen(false)}>Wallets</Link>}
           </nav>
         </div>

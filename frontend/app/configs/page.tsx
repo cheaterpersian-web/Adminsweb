@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import NeonTilt from "../../components/NeonTilt";
 
 export default function ConfigsPage() {
   const [name, setName] = useState("");
@@ -246,23 +247,23 @@ export default function ConfigsPage() {
   return (
     <main className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold">Configs</h1>
+        <h1 className="text-2xl font-semibold neon-text">Configs</h1>
         <p className="text-sm text-muted-foreground">ایجاد کاربر در پنل مرزبان و دریافت لینک ساب</p>
       </div>
 
-      <Card>
+      <Card className="neon-card">
         <CardHeader>
-          <CardTitle>ایجاد کاربر و لینک Subscription</CardTitle>
+          <CardTitle className="neon-text">ایجاد کاربر و لینک Subscription</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div className="space-y-1">
               <label className="text-sm">نام کاربر</label>
-              <input className="w-full h-10 px-3 rounded-md border bg-background" value={name} onChange={e=>setName(e.target.value)} placeholder="example_user" required />
+              <NeonTilt><input className="w-full h-10 px-3 rounded-md border bg-background" value={name} onChange={e=>setName(e.target.value)} placeholder="example_user" required /></NeonTilt>
             </div>
             <div className="space-y-1">
               <label className="text-sm">پلن</label>
-              <select className="w-full h-10 px-3 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)} required>
+              <NeonTilt><select className="w-full h-10 px-3 rounded-md border bg-background" value={planId} onChange={e=>setPlanId(e.target.value)} required>
                 {/* Uncategorised group */}
                 {(() => {
                   const uncategorized = (plans||[]).filter((p:any)=> !p.category_id);
@@ -290,14 +291,14 @@ export default function ConfigsPage() {
                     </optgroup>
                   );
                 })}
-              </select>
+              </select></NeonTilt>
             </div>
             {/* For operators, hide panel select and auto-use default; for sudo, show selector */}
             {Array.isArray(panels) && panels.length > 0 && (
-              <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
+              <NeonTilt><DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} /></NeonTilt>
             )}
             <div className="col-span-full flex flex-col sm:flex-row gap-2">
-              <Button type="submit" disabled={busy || !name || !planId || (isRootAdmin && !panelId)}>ایجاد کاربر</Button>
+              <Button type="submit" className="btn-neon" disabled={busy || !name || !planId || (isRootAdmin && !panelId)}>ایجاد کاربر</Button>
             </div>
             {result && result.error && <div className="col-span-full text-sm bg-red-500/10 text-red-600 border border-red-500/30 rounded-md p-2">{result.error}</div>}
             {result && !result.error && (
@@ -332,9 +333,9 @@ export default function ConfigsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="neon-card">
         <CardHeader>
-          <CardTitle>Created</CardTitle>
+          <CardTitle className="neon-text">Created</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-auto">
@@ -421,21 +422,21 @@ export default function ConfigsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="neon-card">
         <CardHeader>
-          <CardTitle>حذف کاربر از پنل</CardTitle>
+          <CardTitle className="neon-text">حذف کاربر از پنل</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={deleteUser} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div className="space-y-1">
               <label className="text-sm">نام کاربر</label>
-              <input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required />
+              <NeonTilt><input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required /></NeonTilt>
             </div>
             {Array.isArray(panels) && panels.length > 0 && (
-              <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
+              <NeonTilt><DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} /></NeonTilt>
             )}
             <div className="col-span-full flex flex-col sm:flex-row gap-2">
-              <Button type="submit" variant="destructive" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
+              <Button type="submit" variant="destructive" className="btn-neon" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
             </div>
             {delMsg && <div className="col-span-full text-sm text-muted-foreground">{delMsg}</div>}
           </form>
