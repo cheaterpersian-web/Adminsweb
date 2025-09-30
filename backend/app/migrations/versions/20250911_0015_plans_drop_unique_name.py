@@ -16,19 +16,32 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Try to drop unique constraint or index on name if exists
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
+    table_name = "plan"
+    # Drop unique constraints that include only the 'name' column
     try:
-        op.drop_constraint("plan_name_key", "plan", type_="unique")
+        uniques = insp.get_unique_constraints(table_name)
     except Exception:
-        pass
+        uniques = []
+    for uc in uniques or []:
+        cols = [c.lower() for c in (uc.get("column_names") or [])]
+        if cols == ["name"] or (len(cols) == 1 and cols[0] == "name"):
+            op.drop_constraint(uc.get("name"), table_name, type_="unique")
+
+    # Drop unique indexes on 'name' if any
     try:
-        op.drop_index("ix_plan_name", table_name="plan")
+        idxs = insp.get_indexes(table_name)
     except Exception:
-        pass
+        idxs = []
+    for ix in idxs or []:
+        cols = [c.lower() for c in (ix.get("column_names") or [])]
+        if ix.get("unique") and (cols == ["name"] or (len(cols) == 1 and cols[0] == "name")):
+            op.drop_index(ix.get("name"), table_name=table_name)
 
 
 def downgrade() -> None:
-    # Not re-creating unique to avoid collisions; create a non-unique index for performance
+    # Create a non-unique index for performance; ignore if exists
     try:
         op.create_index("ix_plan_name", "plan", ["name"], unique=False)
     except Exception:
