@@ -87,7 +87,7 @@ body {
 }
 
 .neon-text {
-  text-shadow: 0 0 8px hsl(var(--neon-pink) / 0.7), 0 0 24px hsl(var(--neon-cyan) / 0.4);
+  text-shadow: 0 0 8px hsl(var(--neon-pink) / 0.55), 0 0 22px hsl(var(--neon-cyan) / 0.32);
 }
 
 /* Glossy button effect */
@@ -108,6 +108,16 @@ body {
 .site-footer {
   @apply text-xs text-muted-foreground border-t;
   background: linear-gradient(180deg, transparent, hsl(var(--brand-end) / 0.05));
+}
+
+/* Prefer bold weight for ASCII in headings/buttons */
+h1, h2, h3, h4, h5, h6, .btn-en-bold {
+  font-family: var(--font-en), var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Noto Sans, sans-serif;
+  font-weight: 600;
+}
+strong, b {
+  font-family: var(--font-en), var(--font-sans), ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, Noto Sans, sans-serif;
+  font-weight: 700;
 }
 
 /* Glitch effect */
