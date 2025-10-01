@@ -4,6 +4,7 @@ import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import NeonTilt from "../../components/NeonTilt";
+import GlitchText from "../../components/GlitchText";
 
 export default function ConfigsPage() {
   const [name, setName] = useState("");
@@ -247,7 +248,7 @@ export default function ConfigsPage() {
   return (
     <main className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold neon-text">Configs</h1>
+        <h1 className="text-2xl font-semibold"><GlitchText className="neon-text">Configs</GlitchText></h1>
         <p className="text-sm text-muted-foreground">ایجاد کاربر در پنل مرزبان و دریافت لینک ساب</p>
       </div>
 
