@@ -1,15 +1,10 @@
 import "../styles/globals.css";
 import type { ReactNode } from "react";
 import AppShell from "../components/AppShell";
-import localFont from "next/font/local";
+import { Vazirmatn } from "next/font/google";
 
-const vazirmatn = localFont({
-  src: [
-    { path: "../public/fonts/vazirmatn/Vazirmatn-Regular.woff2", weight: "400", style: "normal" },
-    { path: "../public/fonts/vazirmatn/Vazirmatn-Medium.woff2", weight: "500", style: "normal" },
-    { path: "../public/fonts/vazirmatn/Vazirmatn-SemiBold.woff2", weight: "600", style: "normal" },
-    { path: "../public/fonts/vazirmatn/Vazirmatn-Bold.woff2", weight: "700", style: "normal" },
-  ],
+const vazirmatn = Vazirmatn({
+  subsets: ["arabic", "latin"],
   variable: "--font-sans",
   display: "swap",
 });
