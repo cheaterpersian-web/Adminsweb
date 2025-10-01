@@ -42,17 +42,67 @@ export default function ThreeBackground() {
     scene.add(dir);
 
     // Generate a field of simple bright blocks (no windows/details)
-    const blocks: THREE.Mesh[] = [];
+    type BlockMeta = { mesh: THREE.Mesh; basePos: THREE.Vector3; swayPhase: number; rotPhase: number; bobSpeed: number };
+    const blocks: BlockMeta[] = [];
     const baseGeom = new THREE.BoxGeometry(1, 1, 1);
-    for (let i = 0; i < 220; i++) {
-      const height = 0.4 + Math.random() * 2.2;
-      const matBlock = new THREE.MeshStandardMaterial({ color: new THREE.Color(0xe9ecef), metalness: 0.05, roughness: 0.9 });
+    for (let i = 0; i < 260; i++) {
+      const height = 0.5 + Math.random() * 2.8;
+      const sx = 0.8 + Math.random() * 1.8;
+      const sz = 0.8 + Math.random() * 1.8;
+      const matBlock = new THREE.MeshStandardMaterial({ color: new THREE.Color(0xe9ecef), metalness: 0.05, roughness: 0.92 });
       const m = new THREE.Mesh(baseGeom, matBlock);
-      m.scale.set(1.2, height, 1.2);
-      m.position.set(-15 + Math.random() * 30, (height / 2) - 8, -30 + Math.random() * 40);
+      m.scale.set(sx, height, sz);
+      const base = new THREE.Vector3(-15 + Math.random() * 30, (height / 2) - 8, -30 + Math.random() * 40);
+      m.position.copy(base);
       m.rotation.y = Math.random() * Math.PI;
-      blocks.push(m);
+      const meta: BlockMeta = { mesh: m, basePos: base, swayPhase: Math.random() * Math.PI * 2, rotPhase: Math.random() * Math.PI * 2, bobSpeed: 0.35 + Math.random() * 0.35 };
+      blocks.push(meta);
       scene.add(m);
+    }
+
+    // Smoke: moving soft sprites between blocks
+    const makeSmokeTexture = () => {
+      const size = 128;
+      const c = document.createElement("canvas");
+      c.width = size; c.height = size;
+      const ctx = c.getContext("2d");
+      if (ctx) {
+        const g = ctx.createRadialGradient(size/2, size/2, size*0.1, size/2, size/2, size*0.5);
+        g.addColorStop(0, "rgba(180, 188, 194, 0.28)");
+        g.addColorStop(0.6, "rgba(200, 206, 212, 0.14)");
+        g.addColorStop(1, "rgba(220, 226, 232, 0.0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, size, size);
+      }
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      tex.needsUpdate = true;
+      return tex;
+    };
+    const smokeTex = makeSmokeTexture();
+    type Puff = { sprite: THREE.Sprite; vx: number; vz: number; vy: number; life: number; maxLife: number };
+    const puffs: Puff[] = [];
+    const makePuff = (): Puff => {
+      const mat = new THREE.SpriteMaterial({ map: smokeTex, transparent: true, depthWrite: false, opacity: 0.7 });
+      const s = new THREE.Sprite(mat);
+      const x = -18 + Math.random() * 36;
+      const z = -32 + Math.random() * 46;
+      const y = -9 + Math.random() * 7; // between ground and mid blocks
+      s.position.set(x, y, z);
+      const scale = 2.0 + Math.random() * 4.0;
+      s.scale.set(scale, scale, 1);
+      const dir = Math.random() > 0.5 ? 1 : -1;
+      const speed = 0.03 + Math.random() * 0.06;
+      const vx = (Math.random() - 0.5) * speed * 0.6;
+      const vz = dir * speed;
+      const vy = (Math.random() - 0.5) * 0.01;
+      const maxLife = 6 + Math.random() * 8;
+      scene.add(s);
+      return { sprite: s, vx, vz, vy, life: maxLife, maxLife };
+    };
+    for (let i = 0; i < 140; i++) {
+      puffs.push(makePuff());
     }
 
     // Subtle floating motion to add depth without distraction
@@ -61,10 +111,36 @@ export default function ThreeBackground() {
     const clock = new THREE.Clock();
     const animate = () => {
       const t = clock.getElapsedTime();
-      blocks.forEach((b, idx) => {
-        const phase = (idx * 37.17 + t0) % (Math.PI * 2);
-        b.position.y = (b.scale.y / 2) - 8 + Math.sin(t * 0.4 + phase) * 0.05;
+      // Blocks bob/rotate slightly
+      blocks.forEach((bm, idx) => {
+        const { mesh, basePos, swayPhase, rotPhase, bobSpeed } = bm;
+        mesh.position.x = basePos.x + Math.cos(t * 0.15 + swayPhase) * 0.06;
+        mesh.position.z = basePos.z + Math.sin(t * 0.12 + swayPhase) * 0.06;
+        mesh.position.y = basePos.y + Math.sin(t * bobSpeed + swayPhase) * 0.08;
+        mesh.rotation.y = Math.sin(t * 0.2 + rotPhase) * 0.15;
       });
+
+      // Smoke movement & lifecycle
+      for (let i = 0; i < puffs.length; i++) {
+        const p = puffs[i];
+        const s = p.sprite;
+        s.position.x += p.vx;
+        s.position.y += p.vy;
+        s.position.z += p.vz;
+        p.life -= 0.016;
+        const fade = Math.max(0, Math.min(1, p.life / p.maxLife));
+        (s.material as THREE.SpriteMaterial).opacity = 0.16 + fade * 0.32;
+        // wrap around bounds to keep smoke between blocks
+        if (s.position.z > 16) s.position.z = -34;
+        if (s.position.z < -36) s.position.z = 14;
+        if (s.position.x > 20) s.position.x = -20;
+        if (s.position.x < -20) s.position.x = 20;
+        if (p.life <= 0) {
+          // recycle
+          scene.remove(s);
+          puffs[i] = makePuff();
+        }
+      }
       composer.render();
       raf = requestAnimationFrame(animate);
     };
@@ -91,6 +167,7 @@ export default function ThreeBackground() {
           if (Array.isArray(m)) m.forEach(mm => mm.dispose()); else m.dispose();
         }
       });
+      smokeTex.dispose();
     };
 
     return cleanupRef.current;
