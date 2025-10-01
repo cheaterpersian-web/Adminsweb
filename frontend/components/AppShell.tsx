@@ -23,7 +23,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {/* Remove dark neon overlays to improve readability on light background */}
         {/* <div className="neon-bg" /> */}
         {/* <ParallaxLayers /> */}
-        {/* <CursorTrail /> */}
+        <CursorTrail />
         <ThreeBackground />
         <Topbar />
         <div className="flex-1">

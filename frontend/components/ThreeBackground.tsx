@@ -16,7 +16,7 @@ export default function ThreeBackground() {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 0, 22);
+    camera.position.set(0, -4, 24);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -107,15 +107,34 @@ export default function ThreeBackground() {
 
     // Subtle floating motion to add depth without distraction
     const t0 = Math.random() * 1000;
+    // Mouse parallax
+    let targetRotY = 0;
+    let targetRotX = 0;
+    const onMouseMove = (e: MouseEvent) => {
+      const nx = (e.clientX / window.innerWidth) * 2 - 1; // -1..1
+      const ny = (e.clientY / window.innerHeight) * 2 - 1;
+      targetRotY = -nx * 0.15;
+      targetRotX = ny * 0.08;
+    };
+    window.addEventListener("mousemove", onMouseMove);
 
     const clock = new THREE.Clock();
     const animate = () => {
       const t = clock.getElapsedTime();
+      // Camera travel forward with gentle sway, simulating moving between blocks
+      const travelZ = 24 - (t * 1.6 % 60); // loop every ~37s
+      camera.position.z = travelZ;
+      camera.position.x = Math.sin(t * 0.6) * 2.2;
+      camera.position.y = -4 + Math.sin(t * 0.4) * 0.8;
+      // mouse parallax (lerp)
+      camera.rotation.y += (targetRotY - camera.rotation.y) * 0.08;
+      camera.rotation.x += (targetRotX - camera.rotation.x) * 0.08;
+
       // Blocks bob/rotate slightly
       blocks.forEach((bm, idx) => {
         const { mesh, basePos, swayPhase, rotPhase, bobSpeed } = bm;
-        mesh.position.x = basePos.x + Math.cos(t * 0.15 + swayPhase) * 0.06;
-        mesh.position.z = basePos.z + Math.sin(t * 0.12 + swayPhase) * 0.06;
+        mesh.position.x = basePos.x + Math.cos(t * 0.15 + swayPhase) * 0.08;
+        mesh.position.z = basePos.z + Math.sin(t * 0.12 + swayPhase) * 0.08;
         mesh.position.y = basePos.y + Math.sin(t * bobSpeed + swayPhase) * 0.08;
         mesh.rotation.y = Math.sin(t * 0.2 + rotPhase) * 0.15;
       });
@@ -156,6 +175,7 @@ export default function ThreeBackground() {
     cleanupRef.current = () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("mousemove", onMouseMove);
       composer.dispose();
       renderer.dispose();
       container.removeChild(renderer.domElement);
