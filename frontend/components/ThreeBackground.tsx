@@ -33,53 +33,38 @@ export default function ThreeBackground() {
     const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.65, 0.8, 0.85);
     composer.addPass(bloom);
 
-    // Neon grid plane
-    const grid = new THREE.GridHelper(200, 80, new THREE.Color("#19fbff"), new THREE.Color("#ff00e1"));
-    grid.material.depthWrite = false;
-    grid.position.y = -18;
-    scene.add(grid);
+    // Light scene: soft ambient and directional light
+    scene.background = new THREE.Color(0xf6f7f9);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+    scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+    dir.position.set(2, 4, 5);
+    scene.add(dir);
 
-    // Floating neon lines
-    const lines: THREE.Line[] = [];
-    const mat = new THREE.LineBasicMaterial({ color: new THREE.Color("#19fbff"), transparent: true, opacity: 0.6 });
-    for (let i = 0; i < 40; i++) {
-      const geom = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(-40 + Math.random() * 80, -8 + Math.random() * 16, -40 + Math.random() * 20),
-        new THREE.Vector3(-40 + Math.random() * 80, -8 + Math.random() * 16, -40 + Math.random() * 20),
-      ]);
-      const ln = new THREE.Line(geom, mat.clone());
-      (ln.material as THREE.LineBasicMaterial).color = new THREE.Color(Math.random() > 0.5 ? "#19fbff" : "#ff00e1");
-      lines.push(ln);
-      scene.add(ln);
+    // Generate a field of simple bright blocks (no windows/details)
+    const blocks: THREE.Mesh[] = [];
+    const baseGeom = new THREE.BoxGeometry(1, 1, 1);
+    for (let i = 0; i < 220; i++) {
+      const height = 0.4 + Math.random() * 2.2;
+      const matBlock = new THREE.MeshStandardMaterial({ color: new THREE.Color(0xe9ecef), metalness: 0.05, roughness: 0.9 });
+      const m = new THREE.Mesh(baseGeom, matBlock);
+      m.scale.set(1.2, height, 1.2);
+      m.position.set(-15 + Math.random() * 30, (height / 2) - 8, -30 + Math.random() * 40);
+      m.rotation.y = Math.random() * Math.PI;
+      blocks.push(m);
+      scene.add(m);
     }
 
-    // Starfield particles
-    const starGeom = new THREE.BufferGeometry();
-    const starCount = 600;
-    const starPositions = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount; i++) {
-      starPositions[i * 3 + 0] = (Math.random() - 0.5) * 120;
-      starPositions[i * 3 + 1] = (Math.random() - 0.5) * 60;
-      starPositions[i * 3 + 2] = -60 + Math.random() * 40;
-    }
-    starGeom.setAttribute("position", new THREE.BufferAttribute(starPositions, 3));
-    const starMat = new THREE.PointsMaterial({ color: new THREE.Color("#a855f7"), size: 0.08, transparent: true, opacity: 0.8 });
-    const stars = new THREE.Points(starGeom, starMat);
-    scene.add(stars);
+    // Subtle floating motion to add depth without distraction
+    const t0 = Math.random() * 1000;
 
     const clock = new THREE.Clock();
     const animate = () => {
       const t = clock.getElapsedTime();
-      lines.forEach((ln, idx) => {
-        const geom = ln.geometry as THREE.BufferGeometry;
-        const pos = geom.attributes.position as THREE.BufferAttribute;
-        const speed = 0.8 + (idx % 5) * 0.2;
-        const z = -40 + ((t * speed + idx * 3) % 60);
-        pos.setZ(0, z);
-        pos.setZ(1, z + 4);
-        pos.needsUpdate = true;
+      blocks.forEach((b, idx) => {
+        const phase = (idx * 37.17 + t0) % (Math.PI * 2);
+        b.position.y = (b.scale.y / 2) - 8 + Math.sin(t * 0.4 + phase) * 0.05;
       });
-      stars.rotation.z = t * 0.03;
       composer.render();
       raf = requestAnimationFrame(animate);
     };

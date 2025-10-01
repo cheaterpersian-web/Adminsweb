@@ -20,9 +20,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <AuthGuard>
       <div className="min-h-screen flex flex-col relative">
-        <div className="neon-bg" />
-        <ParallaxLayers />
-        <CursorTrail />
+        {/* Remove dark neon overlays to improve readability on light background */}
+        {/* <div className="neon-bg" /> */}
+        {/* <ParallaxLayers /> */}
+        {/* <CursorTrail /> */}
         <ThreeBackground />
         <Topbar />
         <div className="flex-1">
