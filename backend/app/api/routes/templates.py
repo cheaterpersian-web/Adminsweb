@@ -98,7 +98,7 @@ def list_plan_templates(db: Session = Depends(get_db), _: Depends = Depends(requ
 
 
 @router.post("/plan-templates", response_model=PlanTemplateRead)
-def create_plan_template(payload: PlanTemplateCreate, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin))):
+def create_plan_template(payload: PlanTemplateCreate, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin)):
     t = PlanTemplate(name=payload.name)
     db.add(t)
     db.commit()
@@ -116,7 +116,7 @@ class PlanTemplateUpdate(BaseModel):
 
 
 @router.put("/plan-templates/{template_id}", response_model=PlanTemplateRead)
-def update_plan_template(template_id: int, payload: PlanTemplateUpdate, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin))):
+def update_plan_template(template_id: int, payload: PlanTemplateUpdate, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin)):
     t = db.query(PlanTemplate).filter(PlanTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Plan template not found")
@@ -134,7 +134,7 @@ def update_plan_template(template_id: int, payload: PlanTemplateUpdate, db: Sess
 
 
 @router.delete("/plan-templates/{template_id}")
-def delete_plan_template(template_id: int, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin))):
+def delete_plan_template(template_id: int, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin)):
     t = db.query(PlanTemplate).filter(PlanTemplate.id == template_id).first()
     if not t:
         raise HTTPException(status_code=404, detail="Plan template not found")
@@ -150,7 +150,7 @@ class AssignPlanTemplatePayload(BaseModel):
 
 
 @router.post("/plan-templates/assign")
-def assign_plan_template(payload: AssignPlanTemplatePayload, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin))):
+def assign_plan_template(payload: AssignPlanTemplatePayload, db: Session = Depends(get_db), _: Depends = Depends(require_root_admin)):
     rec = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == payload.user_id).first()
     if not rec:
         rec = UserPlanTemplate(user_id=payload.user_id, template_id=payload.template_id)
