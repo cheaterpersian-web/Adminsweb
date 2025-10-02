@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -17,6 +17,7 @@ export default function ConfigsPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [created, setCreated] = useState<any[] | null>(null);
   const filteredCreated = useMemo(() => {
     try {
       const base = Array.isArray(created) ? created : [];
@@ -25,7 +26,6 @@ export default function ConfigsPage() {
       return base.filter((r:any) => String(r.username || "").toLowerCase().includes(s));
     } catch { return Array.isArray(created) ? created! : []; }
   }, [search, created]);
-  const [created, setCreated] = useState<any[] | null>(null);
   const [loadingInfo, setLoadingInfo] = useState<Record<number, boolean>>({});
   const [userInfo, setUserInfo] = useState<Record<number, any>>({});
   const [copied, setCopied] = useState<Record<number, boolean>>({});
