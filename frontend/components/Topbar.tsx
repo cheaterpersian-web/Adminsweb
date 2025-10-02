@@ -74,6 +74,7 @@ export default function Topbar() {
             {isRootAdmin && <Link href="/panels" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Panels</Link>}
             {isRootAdmin && <Link href="/plans" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Templates</Link>}
+            {isRootAdmin && <Link href="/plan-templates" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Plan Templates</Link>}
             {isRootAdmin && <Link href="/backup" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Backup</Link>}
             {!isRootAdmin && <Link href="/wallet" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Wallet</Link>}
             {isRootAdmin && <Link href="/wallets" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Wallets</Link>}
@@ -103,6 +104,7 @@ export default function Topbar() {
             {isRootAdmin && <Link href="/panels" className="py-2" onClick={()=>setOpen(false)}>Panels</Link>}
             {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="py-2" onClick={()=>setOpen(false)}>Templates</Link>}
+            {isRootAdmin && <Link href="/plan-templates" className="py-2" onClick={()=>setOpen(false)}>Plan Templates</Link>}
             {isRootAdmin && <Link href="/backup" className="py-2" onClick={()=>setOpen(false)}>Backup</Link>}
             {isRootAdmin && <Link href="/wallets" className="py-2" onClick={()=>setOpen(false)}>Wallets</Link>}
           </nav>
