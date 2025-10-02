@@ -2,18 +2,44 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_root_admin, require_roles
+from app.core.auth import require_root_admin, require_roles, get_current_user
 from app.db.session import get_db
 from app.models.plan import Plan
+from app.models.plan_template import UserPlanTemplate, PlanTemplateItem
 from app.schemas.plan import PlanCreate, PlanRead, PlanUpdate
+from app.models.user import User
 
 
 router = APIRouter()
 
 
 @router.get("/plans", response_model=List[PlanRead])
-def list_plans(db: Session = Depends(get_db), _: Depends = Depends(require_roles(["admin", "operator"]))):
-    return db.query(Plan).order_by(Plan.category_id.asc(), Plan.sort_order.asc(), Plan.id.asc()).all()
+def list_plans(db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    plans = db.query(Plan).order_by(Plan.category_id.asc(), Plan.sort_order.asc(), Plan.id.asc()).all()
+    # If operator, try to fetch assigned plan template and attach effective_price
+    try:
+        if current_user.role == "operator":
+            upt = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == current_user.id).first()
+            if upt:
+                overrides = {row.plan_id: row.price_override for row in db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id).all()}
+                result: list[PlanRead] = []
+                for p in plans:
+                    pr = PlanRead.from_orm(p)
+                    if p.id in overrides:
+                        pr.effective_price = overrides[p.id]
+                    else:
+                        pr.effective_price = p.price
+                    result.append(pr)
+                return result
+    except Exception:
+        pass
+    # Default: set effective_price to base price
+    res = []
+    for p in plans:
+        pr = PlanRead.from_orm(p)
+        pr.effective_price = p.price
+        res.append(pr)
+    return res
 
 
 @router.post("/plans", response_model=PlanRead)
