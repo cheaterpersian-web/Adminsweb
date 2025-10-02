@@ -16,8 +16,13 @@ router = APIRouter()
 
 
 @router.get("/configs", response_model=List[ConfigRead])
-def list_configs(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
-    return db.query(Config).order_by(Config.id.desc()).all()
+def list_configs(q: str | None = Query(default=None, description="search by title"), db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+    qry = db.query(Config)
+    if q:
+        like = f"%{q.strip()}%"
+        from sqlalchemy import or_
+        qry = qry.filter(Config.title.ilike(like))
+    return qry.order_by(Config.id.desc()).all()
 
 
 @router.post("/configs", response_model=SignedURL)
@@ -68,3 +73,13 @@ async def download_config(config_id: int, sig: str = Query(...), exp: int = Quer
     if not verify_signature(cfg.file_path, sig, exp):
         raise HTTPException(status_code=403, detail="Invalid or expired signature")
     return FileResponse(cfg.file_path, filename=cfg.title)
+
+
+@router.get("/configs/{config_id}/signed-url", response_model=SignedURL)
+def get_signed_url(config_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
+    cfg = db.query(Config).filter(Config.id == config_id).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="Config not found")
+    sig, exp = sign_path(cfg.file_path)
+    url = f"/api/configs/{config_id}/download?sig={sig}&exp={exp}"
+    return SignedURL(url=url, expires_in=exp)

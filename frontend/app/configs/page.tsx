@@ -16,6 +16,8 @@ export default function ConfigsPage() {
   const [isRootAdmin, setIsRootAdmin] = useState<boolean>(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
+  const [search, setSearch] = useState("");
+  const [configs, setConfigs] = useState<any[] | null>(null);
   const [created, setCreated] = useState<any[] | null>(null);
   const [loadingInfo, setLoadingInfo] = useState<Record<number, boolean>>({});
   const [userInfo, setUserInfo] = useState<Record<number, any>>({});
@@ -169,6 +171,15 @@ export default function ConfigsPage() {
     } catch { setCreated([]); }
   };
   if (created === null) { void loadCreated(); }
+
+  const loadConfigs = async () => {
+    try {
+      const qs = search ? `?q=${encodeURIComponent(search)}` : "";
+      const data = await apiFetch(`/configs${qs}`);
+      setConfigs(Array.isArray(data) ? data : []);
+    } catch { setConfigs([]); }
+  };
+  useEffect(() => { void loadConfigs(); }, [search]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -339,6 +350,15 @@ export default function ConfigsPage() {
           <CardTitle className="neon-text">Created</CardTitle>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex items-center gap-2">
+            <input
+              className="h-9 px-3 rounded-md border bg-background w-full sm:w-80"
+              placeholder="جستجو بر اساس نام کانفیگ"
+              value={search}
+              onChange={e=>setSearch(e.target.value)}
+            />
+            <Button variant="outline" onClick={()=>setSearch("")}>پاک کردن</Button>
+          </div>
           <div className="overflow-auto">
             <table className="min-w-full sm:min-w-[1000px] w-full text-sm border">
               <thead className="bg-secondary">
