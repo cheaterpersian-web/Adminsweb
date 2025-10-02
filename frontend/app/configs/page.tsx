@@ -17,7 +17,14 @@ export default function ConfigsPage() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ username?: string; sub?: string; error?: string } | null>(null);
   const [search, setSearch] = useState("");
-  const [configs, setConfigs] = useState<any[] | null>(null);
+  const filteredCreated = useMemo(() => {
+    try {
+      const base = Array.isArray(created) ? created : [];
+      const s = (search || "").trim().toLowerCase();
+      if (!s) return base;
+      return base.filter((r:any) => String(r.username || "").toLowerCase().includes(s));
+    } catch { return Array.isArray(created) ? created! : []; }
+  }, [search, created]);
   const [created, setCreated] = useState<any[] | null>(null);
   const [loadingInfo, setLoadingInfo] = useState<Record<number, boolean>>({});
   const [userInfo, setUserInfo] = useState<Record<number, any>>({});
@@ -172,14 +179,7 @@ export default function ConfigsPage() {
   };
   if (created === null) { void loadCreated(); }
 
-  const loadConfigs = async () => {
-    try {
-      const qs = search ? `?q=${encodeURIComponent(search)}` : "";
-      const data = await apiFetch(`/configs${qs}`);
-      setConfigs(Array.isArray(data) ? data : []);
-    } catch { setConfigs([]); }
-  };
-  useEffect(() => { void loadConfigs(); }, [search]);
+  
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -372,7 +372,7 @@ export default function ConfigsPage() {
                 </tr>
               </thead>
               <tbody>
-                {(created||[]).map((r:any)=> (
+                {(filteredCreated||[]).map((r:any)=> (
                   <tr key={r.id} className="border-t">
                     <td className="p-2">{r.username}</td>
                     <td className="p-2">{r.panel_id}</td>
