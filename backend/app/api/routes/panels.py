@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal, ROUND_HALF_UP
@@ -1096,13 +1096,10 @@ def _xui_build_share_link(base_url: str, inbound: dict, client_email: str, clien
 
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
-async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     logger = logging.getLogger("app")
-    try:
-        trace_id = getattr((getattr(db, "info", None) or {}), "trace_id", "")
-    except Exception:
-        trace_id = ""
-    logger.info("create_user start panel_id=%s user_id=%s role=%s plan_id=%s", panel_id, current_user.id, current_user.role, payload.plan_id)
+    trace_id = getattr(request.state, "trace_id", "-")
+    logger.info("create_user start trace=%s panel_id=%s user_id=%s role=%s plan_id=%s", trace_id, panel_id, current_user.id, current_user.role, payload.plan_id)
 
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
@@ -1165,6 +1162,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 if logged_in:
                     break
             if not logged_in:
+                logger.error("create_user xui_login_failed trace=%s panel_id=%s", trace_id, panel_id)
                 return PanelUserCreateResponse(ok=False, error="Login to XUI failed")
 
             # Determine selected inbound (XUI: single inbound required)
@@ -1180,6 +1178,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             # Resolve plan for limits
             plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
             if not plan:
+                logger.error("create_user plan_not_found trace=%s plan_id=%s", trace_id, payload.plan_id)
                 raise HTTPException(status_code=404, detail="Plan not found")
 
             # Deduct wallet for non-root admins (already handled below for marzban; do here for xui as well)
@@ -1263,6 +1262,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 except Exception as e:
                     last_status = 0
                     last_text = str(e)
+                    logger.error("create_user xui_req_error trace=%s url=%s err=%s", trace_id, url, last_text)
                     continue
                 if 200 <= res.status_code < 300:
                     # Try fetch fresh inbounds to locate created client and build subscription where possible
@@ -1365,15 +1365,18 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     )
                 last_status = res.status_code
                 last_text = res.text[:200]
+                logger.warning("create_user xui_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, last_status, last_text)
             return PanelUserCreateResponse(ok=False, error=f"XUI responded {last_status}", raw={"error": last_text or "unknown"})
 
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
+        logger.error("create_user marzban_login_failed trace=%s panel_id=%s", trace_id, panel_id)
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
 
     # Enforce using plan
     plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
     if not plan:
+        logger.error("create_user plan_not_found trace=%s plan_id=%s", trace_id, payload.plan_id)
         raise HTTPException(status_code=404, detail="Plan not found")
     # Deduct wallet for non-root admins
     try:
@@ -1386,6 +1389,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
     except Exception:
         is_root_admin = False
+    logger.info("create_user role_check trace=%s is_root_admin=%s", trace_id, is_root_admin)
     if not is_root_admin:
         # Ensure wallet exists
         wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
@@ -1427,6 +1431,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             resp_inb.raise_for_status()
             inb_data = resp_inb.json()
         except Exception as e:
+            logger.error("create_user fetch_inbounds_failed trace=%s err=%s", trace_id, str(e))
             return PanelUserCreateResponse(ok=False, error=f"Failed to fetch inbounds: {e}")
 
         normalized: list[dict] = []
@@ -1484,6 +1489,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         try:
             res = await client.post(url, json=body, headers=headers)
         except Exception as e:
+            logger.error("create_user marz_req_error trace=%s url=%s err=%s", trace_id, url, str(e))
             return PanelUserCreateResponse(ok=False, error=str(e))
 
         if res.headers.get("content-type", "").startswith("application/json"):
@@ -1534,6 +1540,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 try:
                     res2 = await client.post(url, json=body2, headers=headers)
                 except Exception:
+                    logger.error("create_user marz_retry_req_error trace=%s url=%s", trace_id, url)
                     continue
                 if 200 <= res2.status_code < 300:
                     data2 = res2.json() if res2.headers.get("content-type", "").startswith("application/json") else {}
@@ -1550,6 +1557,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     except Exception:
                         pass
                     return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data2)
+            logger.warning("create_user marz_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, res.status_code, (data if isinstance(data, dict) else {}))
             return PanelUserCreateResponse(ok=False, error=f"Panel responded {res.status_code}", raw=(data if isinstance(data, dict) else {}))
 
 
