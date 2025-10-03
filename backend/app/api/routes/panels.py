@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from decimal import Decimal, ROUND_HALF_UP
 import httpx
+import logging
 
 from app.db.session import get_db
 from app.models.user import User
@@ -1096,8 +1097,16 @@ def _xui_build_share_link(base_url: str, inbound: dict, client_email: str, clien
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
 async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    logger = logging.getLogger("app")
+    try:
+        trace_id = getattr((getattr(db, "info", None) or {}), "trace_id", "")
+    except Exception:
+        trace_id = ""
+    logger.info("create_user start panel_id=%s user_id=%s role=%s plan_id=%s", panel_id, current_user.id, current_user.role, payload.plan_id)
+
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
+        logger.warning("create_user panel_not_found panel_id=%s", panel_id)
         raise HTTPException(status_code=404, detail="Panel not found")
     # Require inbound selection to avoid invalid subscription links
     sel_exists = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
@@ -1130,7 +1139,8 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 return base
             it = db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id, PlanTemplateItem.plan_id == plan_obj.id).first()
             return Decimal(str(it.price_override)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if it else base
-        except Exception:
+        except Exception as e:
+            logger.error("create_user effective_price_error user_id=%s plan_id=%s err=%s", current_user.id, plan_obj.id, str(e))
             return Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     # XUI branch: cookie-based login and addClient API
