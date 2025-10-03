@@ -5,6 +5,7 @@ from fastapi.responses import ORJSONResponse
 from fastapi.responses import JSONResponse
 import logging
 import uuid
+import traceback
 
 from app.core.config import get_settings
 from app.core.limiter import limiter
@@ -85,6 +86,11 @@ async def add_trace_and_log_exceptions(request: Request, call_next):
             "detail": "Internal Server Error",
             "trace_id": trace_id,
         }
-        if (not is_prod) or settings.expose_errors_public:
+        include_error = (not is_prod) or settings.expose_errors_public
+        if include_error:
             payload["error"] = str(exc)
+            try:
+                payload["stack"] = traceback.format_exc()
+            except Exception:
+                pass
         return JSONResponse(status_code=500, content=payload)
