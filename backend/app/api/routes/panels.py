@@ -1193,7 +1193,6 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
             except Exception:
                 is_root_admin = False
             if not is_root_admin:
-                from app.models.wallet import Wallet, WalletTransaction
                 wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
                 if not wallet:
                     wallet = Wallet(user_id=current_user.id, balance=0)
