@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from decimal import Decimal
 import httpx
 
 from app.db.session import get_db
@@ -19,6 +20,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from app.models.plan import Plan
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.template import UserTemplate, Template, TemplateInbound
+from app.models.plan_template import UserPlanTemplate, PlanTemplateItem
 from app.services.audit import record_audit_event
 
 
@@ -1117,6 +1119,20 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 raise
             except Exception:
                 raise HTTPException(status_code=403, detail="Operator panel credentials not found")
+    # Helper: effective price for current user/plan
+    def _effective_price_for_user(plan_obj: Plan) -> Decimal:
+        try:
+            base = Decimal(str(plan_obj.price))
+            if current_user.role != "operator":
+                return base
+            upt = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == current_user.id).first()
+            if not upt:
+                return base
+            it = db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id, PlanTemplateItem.plan_id == plan_obj.id).first()
+            return Decimal(str(it.price_override)) if it else base
+        except Exception:
+            return Decimal(str(plan_obj.price))
+
     # XUI branch: cookie-based login and addClient API
     if getattr(panel, "type", "marzban") == "xui":
         async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
@@ -1175,10 +1191,12 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     db.add(wallet)
                     db.commit()
                     db.refresh(wallet)
-                if (wallet.balance or 0) < plan.price:
+                price = _effective_price_for_user(plan)
+                wb = Decimal(str(wallet.balance or 0))
+                if wb < price:
                     raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-                wallet.balance = (wallet.balance or 0) - plan.price
-                tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Create user '{payload.name}' on XUI panel {panel_id} (plan {plan.name})")
+                wallet.balance = wb - price
+                tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on XUI panel {panel_id} (plan {plan.name})")
                 db.add(wallet)
                 db.add(tx)
                 db.commit()
@@ -1366,12 +1384,14 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             db.add(wallet)
             db.commit()
             db.refresh(wallet)
-        # Check balance
-        if (wallet.balance or 0) < plan.price:
+        # Check balance using effective price
+        price = _effective_price_for_user(plan)
+        wb = Decimal(str(wallet.balance or 0))
+        if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
         # Deduct and record tx (pre-deduct to prevent race)
-        wallet.balance = (wallet.balance or 0) - plan.price
-        tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
+        wallet.balance = wb - price
+        tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
         db.add(wallet)
         db.add(tx)
         db.commit()
@@ -1774,10 +1794,12 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             db.add(wallet)
             db.commit()
             db.refresh(wallet)
-        if (wallet.balance or 0) < plan.price:
+        price = _effective_price_for_user(plan)
+        wb = Decimal(str(wallet.balance or 0))
+        if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-        wallet.balance = (wallet.balance or 0) - plan.price
-        tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
+        wallet.balance = wb - price
+        tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
         db.add(wallet)
         db.add(tx)
         db.commit()
