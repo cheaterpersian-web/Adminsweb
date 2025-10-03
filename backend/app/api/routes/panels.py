@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import httpx
 
 from app.db.session import get_db
@@ -1122,16 +1122,16 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     # Helper: effective price for current user/plan
     def _effective_price_for_user(plan_obj: Plan) -> Decimal:
         try:
-            base = Decimal(str(plan_obj.price))
+            base = Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             if current_user.role != "operator":
                 return base
             upt = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == current_user.id).first()
             if not upt:
                 return base
             it = db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id, PlanTemplateItem.plan_id == plan_obj.id).first()
-            return Decimal(str(it.price_override)) if it else base
+            return Decimal(str(it.price_override)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if it else base
         except Exception:
-            return Decimal(str(plan_obj.price))
+            return Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     # XUI branch: cookie-based login and addClient API
     if getattr(panel, "type", "marzban") == "xui":
@@ -1192,10 +1192,10 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     db.commit()
                     db.refresh(wallet)
                 price = _effective_price_for_user(plan)
-                wb = Decimal(str(wallet.balance or 0))
+                wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 if wb < price:
                     raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-                wallet.balance = wb - price
+                wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on XUI panel {panel_id} (plan {plan.name})")
                 db.add(wallet)
                 db.add(tx)
@@ -1386,11 +1386,11 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             db.refresh(wallet)
         # Check balance using effective price
         price = _effective_price_for_user(plan)
-        wb = Decimal(str(wallet.balance or 0))
+        wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
         # Deduct and record tx (pre-deduct to prevent race)
-        wallet.balance = wb - price
+        wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
         db.add(wallet)
         db.add(tx)
@@ -1795,10 +1795,10 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             db.commit()
             db.refresh(wallet)
         price = _effective_price_for_user(plan)
-        wb = Decimal(str(wallet.balance or 0))
+        wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-        wallet.balance = wb - price
+        wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
         db.add(wallet)
         db.add(tx)
