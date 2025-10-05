@@ -13,6 +13,7 @@ import re
 from app.models.panel import Panel
 from app.models.user_panel_credentials import UserPanelCredential
 from app.services.audit import record_audit_event
+from pydantic import BaseModel
 
 router = APIRouter()
 
@@ -128,6 +129,15 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
         user.role = payload.role
     if payload.is_active is not None:
         user.is_active = payload.is_active
+    if payload.email is not None:
+        # enforce uniqueness if changed
+        if payload.email != user.email:
+            exists = db.query(User).filter(User.email == payload.email).first()
+            if exists:
+                raise HTTPException(status_code=400, detail="Email already in use")
+            user.email = payload.email
+    if payload.password is not None and str(payload.password).strip():
+        user.hashed_password = hash_password(payload.password)
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -159,3 +169,24 @@ def enable_user(user_id: int, db: Session = Depends(get_db), current_user: User 
     db.refresh(user)
     record_audit_event(db, user_id=current_user.id, action="enable_user", target=str(user.id))
     return user
+
+
+class PanelCredentialRead(BaseModel):
+    panel_id: int
+    panel_name: str
+    username: str
+    password: str
+
+
+@router.get("/users/{user_id}/panel-credentials", response_model=list[PanelCredentialRead])
+def list_user_panel_credentials(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_roles(["admin"]))):
+    rows = (
+        db.query(UserPanelCredential, Panel)
+        .join(Panel, Panel.id == UserPanelCredential.panel_id)
+        .filter(UserPanelCredential.user_id == user_id)
+        .all()
+    )
+    result: list[PanelCredentialRead] = []
+    for upc, panel in rows:
+        result.append(PanelCredentialRead(panel_id=panel.id, panel_name=panel.name, username=upc.username, password=upc.password))
+    return result

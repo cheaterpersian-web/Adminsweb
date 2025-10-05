@@ -3,14 +3,14 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "../../lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+  "relative inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-all duration-300 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 overflow-hidden after:pointer-events-none after:absolute after:inset-0 after:bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.25),transparent)] after:-translate-x-full hover:after:translate-x-full after:transition-transform after:duration-700 after:ease-out",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:opacity-90",
-        outline: "border border-input bg-transparent hover:bg-secondary",
-        ghost: "hover:bg-secondary",
-        destructive: "bg-destructive text-destructive-foreground hover:opacity-90",
+        default: "bg-gradient-to-tr from-brand-start via-primary to-brand-end text-primary-foreground shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0",
+        outline: "border border-input bg-transparent text-foreground hover:bg-secondary/60 shadow-sm hover:shadow",
+        ghost: "hover:bg-secondary/60",
+        destructive: "bg-gradient-to-tr from-red-500 to-rose-600 text-white shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0",
       },
       size: {
         sm: "h-9 px-3",

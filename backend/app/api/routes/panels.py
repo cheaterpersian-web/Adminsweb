@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from decimal import Decimal, ROUND_HALF_UP
 import httpx
+import logging
 
 from app.db.session import get_db
 from app.models.user import User
@@ -11,9 +13,16 @@ from app.models.panel_inbound import PanelInbound
 from app.models.panel_created_user import PanelCreatedUser
 from app.models.user_panel_credentials import UserPanelCredential
 from pydantic import BaseModel, AnyHttpUrl
+import json
+from typing import Literal
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
+from app.models.plan import Plan
+from app.models.wallet import Wallet, WalletTransaction
+from app.models.template import UserTemplate, Template, TemplateInbound
+from app.models.plan_template import UserPlanTemplate, PlanTemplateItem
+from app.services.audit import record_audit_event
 
 
 router = APIRouter()
@@ -24,6 +33,7 @@ class PanelCreate(BaseModel):
     base_url: AnyHttpUrl
     username: str
     password: str
+    type: Optional[str] = "marzban"  # marzban | xui
 
 
 class PanelUpdate(BaseModel):
@@ -41,6 +51,7 @@ class PanelRead(BaseModel):
     inbound_id: Optional[str] = None
     inbound_tag: Optional[str] = None
     is_default: bool = False
+    type: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -106,7 +117,10 @@ def set_default_panel(panel_id: int, db: Session = Depends(get_db), _: User = De
 def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     if db.query(Panel).filter(Panel.name == payload.name).first():
         raise HTTPException(status_code=400, detail="Panel name already exists")
-    panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password)
+    ptype = (payload.type or "marzban").lower()
+    if ptype not in ("marzban", "xui"):
+        ptype = "marzban"
+    panel = Panel(name=payload.name, base_url=str(payload.base_url), username=payload.username, password=payload.password, type=ptype)
     try:
         db.add(panel)
         db.commit()
@@ -118,37 +132,27 @@ def create_panel(payload: PanelCreate, db: Session = Depends(get_db), _: User = 
     except ProgrammingError as e:
         db.rollback()
         msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        if "is_default" in msg or "column" in msg and "does not exist" in msg:
-            raise HTTPException(status_code=500, detail="Database schema out of date. Please run migrations (alembic upgrade head) and retry.")
-        raise HTTPException(status_code=500, detail="Database error")
+        raise HTTPException(status_code=400, detail=msg)
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(status_code=500, detail="Database error")
 
 
-@router.put("/panels/{panel_id}", response_model=PanelRead)
-def update_panel(panel_id: int, payload: PanelUpdate, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+@router.delete("/panels/{panel_id}")
+def delete_panel(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
-    if payload.name is not None:
-        panel.name = payload.name
-    if payload.base_url is not None:
-        panel.base_url = str(payload.base_url)
-    if payload.username is not None:
-        panel.username = payload.username
-    if payload.password is not None:
-        panel.password = payload.password
-    db.add(panel)
+    db.delete(panel)
     db.commit()
-    db.refresh(panel)
-    return panel
+    return {"ok": True}
 
 
 class PanelTestRequest(BaseModel):
     base_url: AnyHttpUrl
     username: str
     password: str
+    type: Optional[str] = None
 
 
 class PanelTestResponse(BaseModel):
@@ -200,9 +204,51 @@ async def _try_login(base_url: str, username: str, password: str) -> tuple[bool,
     return False, None, None, last_error
 
 
+async def _try_login_xui(base_url: str, username: str, password: str) -> tuple[bool, Optional[str], Optional[int], Optional[str]]:
+    # X-UI typically uses cookie-based auth via /login or /xui/login
+    last_error = None
+    async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+        for path in ("/xui/login", "/login"):
+            url = base_url.rstrip("/") + path
+            try:
+                # Common fields for x-ui login
+                res = await client.post(url, data={"username": username, "password": password})
+            except Exception as e:
+                last_error = str(e)
+                continue
+            # Check for set-cookie
+            sc = res.headers.get("set-cookie") or res.headers.get("Set-Cookie")
+            if sc and res.status_code in (200, 204, 302):
+                # Try to access a protected page/json to confirm
+                try:
+                    # Some panels expose /xui/inbounds or /panel/inbounds
+                    for check_path in ("/xui/inbounds", "/panel/inbounds", "/xui/", "/"):
+                        chk = await client.get(base_url.rstrip("/") + check_path)
+                        if chk.status_code in (200, 204):
+                            # Return cookie preview as token_preview
+                            return True, path, res.status_code, (sc.split(";")[0][:24] + "...")
+                except Exception:
+                    pass
+                return True, path, res.status_code, (sc.split(";")[0][:24] + "...")
+            if res.status_code in (401, 403):
+                return False, path, res.status_code, "Unauthorized"
+        # Fallback: check reachability
+        try:
+            chk = await client.get(base_url.rstrip("/") + "/xui/")
+            if chk.status_code == 200:
+                return False, "/xui/", 200, "Reachable, but login failed"
+        except Exception as e:
+            last_error = str(e)
+    return False, None, None, last_error
+
+
 @router.post("/panels/test", response_model=PanelTestResponse)
 async def test_panel(payload: PanelTestRequest, _: User = Depends(require_root_admin)):
-    ok, endpoint, status, info = await _try_login(str(payload.base_url), payload.username, payload.password)
+    ptype = (payload.type or "marzban").lower()
+    if ptype == "xui":
+        ok, endpoint, status, info = await _try_login_xui(str(payload.base_url), payload.username, payload.password)
+    else:
+        ok, endpoint, status, info = await _try_login(str(payload.base_url), payload.username, payload.password)
     if ok:
         return PanelTestResponse(ok=True, endpoint=endpoint, status=status, token_preview=info)
     return PanelTestResponse(ok=False, endpoint=endpoint, status=status, error=info)
@@ -223,6 +269,81 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
+    # XUI: cookie-based and endpoints differ
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            # login (try several field variants)
+            logged_in = False
+            login_variants = [
+                {"username": panel.username, "password": panel.password},
+                {"username": panel.username, "password": panel.password, "remember": "on"},
+                {"username": panel.username, "password": panel.password, "remember_me": "true"},
+            ]
+            for path in ("/xui/login", "/login"):
+                for body in login_variants:
+                    try:
+                        r = await client.post(panel.base_url.rstrip("/") + path, data=body)
+                        if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                            logged_in = True
+                            break
+                    except Exception:
+                        continue
+                if logged_in:
+                    break
+            if not logged_in:
+                raise HTTPException(status_code=502, detail="Login to XUI failed")
+            # fetch inbounds via common XUI endpoints
+            data = None
+            endpoints = (
+                "/xui/api/inbounds/list",
+                "/xui/api/inbounds",
+                "/xui/API/inbounds",
+                "/xui/inbound/list",
+                "/xui/inbounds/list",
+                "/panel/api/inbounds/list",
+                "/panel/inbounds/list",
+                "/panel/inbounds",
+                "/api/inbounds",
+            )
+            for ep in endpoints:
+                try:
+                    res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                    if res.headers.get("content-type", "").startswith("application/json"):
+                        data = res.json()
+                        break
+                except Exception:
+                    continue
+            items: list[InboundItem] = []
+            if isinstance(data, dict):
+                # variants: { obj: [...] } or { inbounds: [...] } or { items: [...] } or { data: [...] } or { list: [...] }
+                candidates = None
+                for key in ("obj", "inbounds", "items", "data", "list"):
+                    if isinstance(data.get(key), list):
+                        candidates = data.get(key)
+                        break
+                # sometimes nested under data: { data: { items: [...] } }
+                if candidates is None and isinstance(data.get("data"), dict):
+                    for key in ("items", "inbounds", "list", "obj"):
+                        if isinstance(data["data"].get(key), list):
+                            candidates = data["data"][key]
+                            break
+                if isinstance(candidates, list):
+                    for it in candidates:
+                        if not isinstance(it, dict):
+                            continue
+                        iid = str(it.get("id") or it.get("tag") or it.get("remark") or it.get("listen") or "")
+                        remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                        items.append(InboundItem(id=iid, tag=str(it.get("tag") or None) or None, remark=remark or None))
+            elif isinstance(data, list):
+                for it in data:
+                    if not isinstance(it, dict):
+                        continue
+                    iid = str(it.get("id") or it.get("tag") or it.get("remark") or it.get("listen") or "")
+                    remark = it.get("remark") or ":".join([str(it.get("protocol")) if it.get("protocol") else "", str(it.get("port")) if it.get("port") else ""]).strip(":")
+                    items.append(InboundItem(id=iid, tag=str(it.get("tag") or None) or None, remark=remark or None))
+            return PanelInboundsResponse(items=items)
+
+    # Marzban default
     token = await _login_get_token(panel.base_url, panel.username, panel.password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
@@ -306,7 +427,7 @@ class PanelUsersResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/users", response_model=PanelUsersResponse)
-async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -314,10 +435,109 @@ async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current
     cred_password = panel.password
     if current_user.role == "operator":
         rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+        if rec:
+            cred_username = rec.username
+            cred_password = rec.password
+        else:
+            # Fallback: allow using panel default credentials only if a template is assigned to this operator for this panel
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                if not ut:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                if not tpl or tpl.panel_id != panel_id:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+                # else: keep using panel.username/password
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
+    # XUI branch
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+            # login cookie
+            logged_in = False
+            for path in ("/xui/login", "/login"):
+                try:
+                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": cred_username, "password": cred_password, "remember": "on"})
+                    if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                        logged_in = True
+                        break
+                except Exception:
+                    continue
+            if not logged_in:
+                raise HTTPException(status_code=502, detail="Login to XUI failed")
+            # Get inbounds and parse clients
+            # Try multiple endpoints to fetch inbounds (like we do above)
+            data = None
+            for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/xui/API/inbounds", "/panel/api/inbounds/list", "/panel/inbounds"):
+                try:
+                    res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                    if res.headers.get("content-type", "").startswith("application/json"):
+                        data = res.json()
+                        break
+                except Exception:
+                    continue
+            items: list[PanelUserListItem] = []
+            inbounds_list = None
+            if isinstance(data, dict):
+                for key in ("obj", "inbounds", "items", "data", "list"):
+                    v = data.get(key)
+                    if isinstance(v, list):
+                        inbounds_list = v
+                        break
+                if inbounds_list is None and isinstance(data.get("data"), dict):
+                    for key in ("items", "inbounds", "list", "obj"):
+                        if isinstance(data["data"].get(key), list):
+                            inbounds_list = data["data"][key]
+                            break
+            elif isinstance(data, list):
+                inbounds_list = data
+            # Extract clients from inbounds
+            if isinstance(inbounds_list, list):
+                for inbound in inbounds_list:
+                    if not isinstance(inbound, dict):
+                        continue
+                    # clients can be in settings.clients as JSON string or object
+                    clients = []
+                    settings = inbound.get("settings")
+                    if isinstance(settings, str):
+                        try:
+                            settings = json.loads(settings)
+                        except Exception:
+                            settings = None
+                    if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
+                        clients = settings.get("clients")
+                    # Some variants have clients field at top level
+                    if not clients and isinstance(inbound.get("clients"), list):
+                        clients = inbound.get("clients")
+                    for c in clients:
+                        if not isinstance(c, dict):
+                            continue
+                        email = str(c.get("email") or c.get("name") or c.get("username") or "")
+                        expire_ms = c.get("expiryTime") or c.get("expire")
+                        expire_ts = None
+                        if isinstance(expire_ms, (int, float)):
+                            # detect ms vs s
+                            expire_ts = int(expire_ms / 1000) if expire_ms > 10**10 else int(expire_ms)
+                        data_limit = c.get("totalGB")
+                        if isinstance(data_limit, str):
+                            try:
+                                data_limit = int(data_limit)
+                            except Exception:
+                                data_limit = None
+                        # Map GB to bytes if small number
+                        if isinstance(data_limit, (int, float)) and data_limit and data_limit < 10**9:
+                            data_limit = int(data_limit) * (1024**3)
+                        items.append(PanelUserListItem(
+                            username=email,
+                            status=None,
+                            data_limit=data_limit if isinstance(data_limit, int) else None,
+                            expire=expire_ts,
+                            subscription_url=None,
+                        ))
+            return PanelUsersResponse(items=items)
+
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
@@ -345,6 +565,63 @@ async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current
                 subscription_url=_canonicalize_subscription_url(panel.base_url, it.get("subscription_url") or it.get("subscription") or None),
             ))
         return PanelUsersResponse(items=items)
+
+
+class PanelUserListItemWithPanel(BaseModel):
+    panel_id: int
+    username: str
+    status: Optional[str] = None
+    data_limit: Optional[int] = None
+    expire: Optional[int] = None
+    subscription_url: Optional[str] = None
+
+
+class PanelUsersByUserResponse(BaseModel):
+    items: list[PanelUserListItemWithPanel]
+
+
+@router.get("/panels/users/by-user/{user_id}", response_model=PanelUsersByUserResponse)
+async def list_panel_users_by_user(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    # Find panels with stored credentials for this operator
+    records = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == user_id).all()
+    if not records:
+        return PanelUsersByUserResponse(items=[])
+    items: list[PanelUserListItemWithPanel] = []
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        for rec in records:
+            panel = db.query(Panel).filter(Panel.id == rec.panel_id).first()
+            if not panel:
+                continue
+            # Login with operator's panel credentials
+            token = await _login_get_token(panel.base_url, rec.username, rec.password)
+            if not token:
+                continue
+            headers = {"Authorization": f"Bearer {token}"}
+            try:
+                r = await client.get(panel.base_url.rstrip("/") + "/api/users", headers=headers)
+                if not r.headers.get("content-type", "").startswith("application/json"):
+                    continue
+                data = r.json()
+                if isinstance(data, dict) and isinstance(data.get("items"), list):
+                    src = data["items"]
+                elif isinstance(data, list):
+                    src = data
+                else:
+                    src = []
+                for it in src:
+                    if not isinstance(it, dict):
+                        continue
+                    items.append(PanelUserListItemWithPanel(
+                        panel_id=panel.id,
+                        username=str(it.get("username") or it.get("name") or ""),
+                        status=it.get("status"),
+                        data_limit=it.get("data_limit"),
+                        expire=it.get("expire"),
+                        subscription_url=_canonicalize_subscription_url(panel.base_url, it.get("subscription_url") or it.get("subscription") or None),
+                    ))
+            except Exception:
+                continue
+    return PanelUsersByUserResponse(items=items)
 
 
 class PanelInboundSelectRequest(BaseModel):
@@ -399,6 +676,13 @@ def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_
     return CreatedUsersResponse(items=items)
 
 
+@router.get("/panels/created/by-user/{user_id}", response_model=CreatedUsersResponse)
+def list_created_users_by_user(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    rows = db.query(PanelCreatedUser).filter(PanelCreatedUser.created_by_user_id == user_id).order_by(PanelCreatedUser.id.desc()).all()
+    items = [CreatedUserItem(id=r.id, panel_id=r.panel_id, username=r.username, subscription_url=r.subscription_url, created_at=r.created_at) for r in rows]
+    return CreatedUsersResponse(items=items)
+
+
 class PanelUserInfoResponse(BaseModel):
     username: str
     data_limit: Optional[int] = None
@@ -411,18 +695,126 @@ class PanelUserInfoResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/user/{username}/info", response_model=PanelUserInfoResponse)
-async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
+    # XUI branch: read clients from inbounds and construct share link
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            # login cookie
+            logged_in = False
+            for path in ("/xui/login", "/login"):
+                try:
+                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": panel.username, "password": panel.password, "remember": "on"})
+                    if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                        logged_in = True
+                        break
+                except Exception:
+                    continue
+            if not logged_in:
+                raise HTTPException(status_code=502, detail="Login to XUI failed")
+            # fetch inbounds
+            data = None
+            for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/xui/API/inbounds", "/panel/api/inbounds/list", "/panel/inbounds"):
+                try:
+                    res = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                    if res.headers.get("content-type", "").startswith("application/json"):
+                        data = res.json()
+                        break
+                except Exception:
+                    continue
+            inbounds_list = None
+            if isinstance(data, dict):
+                for key in ("obj", "inbounds", "items", "data", "list"):
+                    v = data.get(key)
+                    if isinstance(v, list):
+                        inbounds_list = v
+                        break
+                if inbounds_list is None and isinstance(data.get("data"), dict):
+                    for key in ("items", "inbounds", "list", "obj"):
+                        if isinstance(data["data"].get(key), list):
+                            inbounds_list = data["data"][key]
+                            break
+            elif isinstance(data, list):
+                inbounds_list = data
+            # locate client
+            found = None
+            found_inbound = None
+            if isinstance(inbounds_list, list):
+                for inbound in inbounds_list:
+                    if not isinstance(inbound, dict):
+                        continue
+                    settings = inbound.get("settings")
+                    if isinstance(settings, str):
+                        try:
+                            settings = json.loads(settings)
+                        except Exception:
+                            settings = None
+                    clients = []
+                    if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
+                        clients = settings.get("clients")
+                    if not clients and isinstance(inbound.get("clients"), list):
+                        clients = inbound.get("clients")
+                    for c in clients:
+                        if not isinstance(c, dict):
+                            continue
+                        email = str(c.get("email") or c.get("name") or c.get("username") or "")
+                        if email == username:
+                            found = c
+                            found_inbound = inbound
+                            break
+                    if found:
+                        break
+            if not found:
+                raise HTTPException(status_code=404, detail="User not found on XUI")
+            # map fields
+            expire_ms = found.get("expiryTime") or found.get("expire")
+            expire_ts = None
+            if isinstance(expire_ms, (int, float)):
+                expire_ts = int(expire_ms / 1000) if expire_ms > 10**10 else int(expire_ms)
+            data_limit = found.get("totalGB")
+            if isinstance(data_limit, str):
+                try:
+                    data_limit = int(data_limit)
+                except Exception:
+                    data_limit = None
+            if isinstance(data_limit, (int, float)) and data_limit and data_limit < 10**9:
+                data_limit = int(data_limit) * (1024**3)
+            # build share link if possible
+            client_id = None
+            for k in ("id", "uuid", "clientId", "client_id"):
+                if isinstance(found.get(k), str):
+                    client_id = found.get(k)
+                    break
+            sub = _xui_build_share_link(panel.base_url, found_inbound or {}, username, client_id)
+            return PanelUserInfoResponse(
+                username=username,
+                data_limit=data_limit if isinstance(data_limit, int) else None,
+                used=None,
+                remaining=None,
+                expire=expire_ts,
+                expires_in=None,
+                status=None,
+                subscription_url=sub,
+            )
     cred_username = panel.username
     cred_password = panel.password
     if current_user.role == "operator":
         rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+        if rec:
+            cred_username = rec.username
+            cred_password = rec.password
+        else:
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+                if not tpl or tpl.panel_id != panel_id:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
@@ -491,14 +883,15 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
 
 class PanelUserCreateRequest(BaseModel):
     name: str
-    volume_gb: float
-    duration_days: int
+    plan_id: int
 
 
 class PanelUserCreateResponse(BaseModel):
     ok: bool
     username: Optional[str] = None
     subscription_url: Optional[str] = None
+    expire: Optional[int] = None
+    data_limit: Optional[int] = None
     raw: Optional[dict] = None
     error: Optional[str] = None
 
@@ -525,18 +918,21 @@ async def _login_get_token(base_url: str, username: str, password: str) -> Optio
     return None
 
 
-def _build_payload_variants(username: str, bytes_limit: int, expire_at: datetime) -> list[dict]:
+def _build_payload_variants(username: str, bytes_limit: int, expire_at: Optional[datetime]) -> list[dict]:
     # Try multiple payload shapes commonly used
-    expire_days = max(1, int((expire_at - datetime.now(tz=timezone.utc)).total_seconds() // 86400))
-    iso = expire_at.isoformat()
-    return [
-        {"username": username, "data_limit": bytes_limit, "expire": expire_days},
-        {"username": username, "data_limit": bytes_limit, "expire_in_days": expire_days},
-        {"username": username, "data_limit": bytes_limit, "expire_at": iso},
-        {"username": username, "limit": bytes_limit, "expire": expire_days},
-        {"username": username, "quota": bytes_limit, "expire_days": expire_days},
-        {"username": username, "data_limit": bytes_limit},
-    ]
+    variants: list[dict] = []
+    if expire_at is not None:
+        expire_days = max(1, int((expire_at - datetime.now(tz=timezone.utc)).total_seconds() // 86400))
+        iso = expire_at.isoformat()
+        variants.extend([
+            {"username": username, "data_limit": bytes_limit, "expire": expire_days},
+            {"username": username, "data_limit": bytes_limit, "expire_in_days": expire_days},
+            {"username": username, "data_limit": bytes_limit, "expire_at": iso},
+            {"username": username, "limit": bytes_limit, "expire": expire_days},
+            {"username": username, "quota": bytes_limit, "expire_days": expire_days},
+        ])
+    variants.append({"username": username, "data_limit": bytes_limit})
+    return variants
 
 
 async def _extract_subscription_url(base_url: str, data: dict) -> Optional[str]:
@@ -582,12 +978,132 @@ def _canonicalize_subscription_url(base_url: str, subscription_url: Optional[str
         return urlunparse((b.scheme, b.netloc, s.path or "/sub", "", s.query, ""))
     except Exception:
         return subscription_url
+def _xui_build_share_link(base_url: str, inbound: dict, client_email: str, client_id: Optional[str]) -> Optional[str]:
+    try:
+        b = urlparse(base_url)
+        host = b.hostname or ""
+        proto = str(inbound.get("protocol") or "").lower()
+        port = str(inbound.get("port") or "")
+        stream = inbound.get("streamSettings") or {}
+        if isinstance(stream, str):
+            try:
+                stream = json.loads(stream)
+            except Exception:
+                stream = {}
+        network = str(stream.get("network") or "tcp").lower()
+        security = str(stream.get("security") or "").lower()
+        params: list[tuple[str, str]] = []
+        tag_name = client_email
+
+        if proto == "vless":
+            # vless://UUID@host:port?encryption=none&security=...&type=...&path=...&host=...&sni=...#name
+            uuid = client_id or ""
+            if not uuid:
+                return None
+            params.append(("encryption", "none"))
+            if security:
+                params.append(("security", security))
+                if security == "tls":
+                    tls = stream.get("tlsSettings") or {}
+                    sni = tls.get("serverName") or tls.get("server_name")
+                    if sni:
+                        params.append(("sni", str(sni)))
+                    alpn = tls.get("alpn")
+                    if isinstance(alpn, list) and alpn:
+                        params.append(("alpn", ",".join(alpn)))
+                if security == "reality":
+                    rs = stream.get("realitySettings") or {}
+                    pbk = rs.get("publicKey")
+                    if pbk:
+                        params.append(("pbk", str(pbk)))
+                    sid = rs.get("shortIds")
+                    if isinstance(sid, list) and sid:
+                        params.append(("sid", sid[0]))
+                    sni = None
+                    sn = rs.get("serverNames")
+                    if isinstance(sn, list) and sn:
+                        sni = sn[0]
+                    if sni:
+                        params.append(("sni", str(sni)))
+            # transport
+            params.append(("type", network))
+            if network == "ws":
+                ws = stream.get("wsSettings") or {}
+                path = ws.get("path") or "/"
+                params.append(("path", str(path)))
+                headers = ws.get("headers") or {}
+                hhost = headers.get("Host") or headers.get("host")
+                if hhost:
+                    params.append(("host", str(hhost)))
+            elif network == "grpc":
+                gs = stream.get("grpcSettings") or {}
+                service = gs.get("serviceName") or "grpc"
+                params.append(("serviceName", str(service)))
+
+            query = "&".join([f"{k}={str(v)}" for k, v in params])
+            return f"vless://{uuid}@{host}:{port}?{query}#{tag_name}"
+
+        if proto == "vmess":
+            # vmess base64(JSON)
+            uuid = client_id or ""
+            if not uuid:
+                return None
+            tls_flag = "tls" if security in ("tls", "reality") else ""
+            ws = stream.get("wsSettings") or {}
+            gs = stream.get("grpcSettings") or {}
+            vm = {
+                "v": "2",
+                "ps": tag_name,
+                "add": host,
+                "port": str(port),
+                "id": uuid,
+                "aid": "0",
+                "net": network,
+                "type": "",
+                "host": (ws.get("headers") or {}).get("Host") or "",
+                "path": ws.get("path") or "",
+                "tls": tls_flag,
+                "sni": (stream.get("tlsSettings") or {}).get("serverName") or "",
+                "alpn": ",".join((stream.get("tlsSettings") or {}).get("alpn") or []) if (stream.get("tlsSettings") or {}).get("alpn") else "",
+                "fp": (stream.get("realitySettings") or {}).get("fingerprint") or "",
+                "serviceName": gs.get("serviceName") or "",
+            }
+            import base64
+            b64 = base64.b64encode(json.dumps(vm, separators=(",", ":")).encode()).decode()
+            return f"vmess://{b64}"
+
+        # trojan minimal (if present)
+        if proto == "trojan":
+            pwd = client_id or ""
+            if not pwd:
+                return None
+            if security:
+                params.append(("security", security))
+            if network == "ws":
+                ws = stream.get("wsSettings") or {}
+                path = ws.get("path") or "/"
+                params.append(("type", "ws"))
+                params.append(("path", str(path)))
+                headers = ws.get("headers") or {}
+                hhost = headers.get("Host") or headers.get("host")
+                if hhost:
+                    params.append(("host", str(hhost)))
+            q = "&".join([f"{k}={str(v)}" for k, v in params])
+            return f"trojan://{pwd}@{host}:{port}?{q}#{tag_name}"
+    except Exception:
+        return None
+    return None
 
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
-async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    logger = logging.getLogger("app")
+    trace_id = getattr(request.state, "trace_id", "-")
+    logger.info("create_user start trace=%s panel_id=%s user_id=%s role=%s plan_id=%s", trace_id, panel_id, current_user.id, current_user.role, payload.plan_id)
+
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
+        logger.warning("create_user panel_not_found panel_id=%s", panel_id)
         raise HTTPException(status_code=404, detail="Panel not found")
     # Require inbound selection to avoid invalid subscription links
     sel_exists = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
@@ -596,18 +1112,315 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
     cred_password = panel.password
     if current_user.role == "operator":
         rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+        if rec:
+            cred_username = rec.username
+            cred_password = rec.password
+        else:
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+                if not tpl or tpl.panel_id != panel_id:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
+    # Helper: effective price for current user/plan
+    def _effective_price_for_user(plan_obj: Plan) -> Decimal:
+        try:
+            base = Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if current_user.role != "operator":
+                return base
+            upt = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == current_user.id).first()
+            if not upt:
+                return base
+            it = db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id, PlanTemplateItem.plan_id == plan_obj.id).first()
+            return Decimal(str(it.price_override)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if it else base
+        except Exception as e:
+            logger.error("create_user effective_price_error user_id=%s plan_id=%s err=%s", current_user.id, plan_obj.id, str(e))
+            return Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # XUI branch: cookie-based login and addClient API
+    if getattr(panel, "type", "marzban") == "xui":
+        async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+            # login
+            logged_in = False
+            login_variants = [
+                {"username": cred_username, "password": cred_password},
+                {"username": cred_username, "password": cred_password, "remember": "on"},
+                {"username": cred_username, "password": cred_password, "remember_me": "true"},
+            ]
+            for path in ("/xui/login", "/login"):
+                for body in login_variants:
+                    try:
+                        r = await client.post(panel.base_url.rstrip("/") + path, data=body)
+                        if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
+                            logged_in = True
+                            break
+                    except Exception:
+                        continue
+                if logged_in:
+                    break
+            if not logged_in:
+                logger.error("create_user xui_login_failed trace=%s panel_id=%s", trace_id, panel_id)
+                return PanelUserCreateResponse(ok=False, error="Login to XUI failed")
+
+            # Determine selected inbound (XUI: single inbound required)
+            sel_row = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
+            if not sel_row:
+                return PanelUserCreateResponse(ok=False, error="No inbound selected for this panel")
+            inbound_id = sel_row.inbound_id
+            try:
+                inbound_id_int = int(inbound_id)
+            except Exception:
+                inbound_id_int = None
+
+            # Resolve plan for limits
+            plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
+            if not plan:
+                logger.error("create_user plan_not_found trace=%s plan_id=%s", trace_id, payload.plan_id)
+                raise HTTPException(status_code=404, detail="Plan not found")
+
+            # Deduct wallet for non-root admins (already handled below for marzban; do here for xui as well)
+            try:
+                from app.core.config import get_settings
+                from app.models.root_admin import RootAdmin
+                settings = get_settings()
+                emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+                is_env_root = current_user.email.lower() in emails
+                is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == current_user.id).first() is not None
+                is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
+            except Exception:
+                is_root_admin = False
+            if not is_root_admin:
+                wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+                if not wallet:
+                    wallet = Wallet(user_id=current_user.id, balance=0)
+                    db.add(wallet)
+                    db.commit()
+                    db.refresh(wallet)
+                price = _effective_price_for_user(plan)
+                wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if wb < price:
+                    raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+                wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on XUI panel {panel_id} (plan {plan.name})")
+                db.add(wallet)
+                db.add(tx)
+                db.commit()
+
+            # Build client payloads (variants)
+            import uuid as _uuid
+            client_id = str(_uuid.uuid4())
+            # expiryTime in ms (0 for unlimited)
+            if plan.is_duration_unlimited:
+                expiry_ms = 0
+            else:
+                days = max(1, int(plan.duration_days or 0))
+                expiry_ms = int((datetime.now(tz=timezone.utc) + timedelta(days=days)).timestamp() * 1000)
+            # traffic (0 unlimited). Try both GB and bytes variants
+            if plan.is_data_unlimited:
+                total_gb_val = 0
+                total_bytes_val = 0
+            else:
+                mb = max(0, int(plan.data_quota_mb or 0))
+                total_gb_val = max(1, int(round(mb / 1024)))
+                total_bytes_val = mb * 1024 * 1024
+
+            base_client = {
+                "enable": True,
+                "email": payload.name,
+                "limitIp": 0,
+                "flow": "",
+                "id": client_id,
+            }
+
+            attempts: list[tuple[str, dict, str]] = []
+            # JSON API variants
+            if inbound_id_int is not None:
+                attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}}, "json"))
+                attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_bytes_val}}, "json"))
+                attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "settings": {"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}]}}, "json"))
+                attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "settings": {"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_bytes_val}]}}, "json"))
+                attempts.append(("/panel/api/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}}, "json"))
+            # Form variants
+            form_base = {"email": payload.name, "enable": "true", "limitIp": "0", "flow": "", "id": client_id}
+            attempts.append(("/xui/inbound/addClient", {**form_base, "id": inbound_id, "expiryTime": str(expiry_ms), "totalGB": str(total_gb_val)}, "form"))
+            attempts.append(("/xui/inbound/addClient", {**form_base, "id": inbound_id, "expiryTime": str(expiry_ms), "totalGB": str(total_bytes_val)}, "form"))
+            attempts.append(("/panel/inbound/addClient", {**form_base, "id": inbound_id, "expiryTime": str(expiry_ms), "totalGB": str(total_gb_val)}, "form"))
+
+            last_status = None
+            last_text = None
+            for path, body, mode in attempts:
+                try:
+                    url = panel.base_url.rstrip("/") + path
+                    if mode == "json":
+                        res = await client.post(url, json=body)
+                    else:
+                        res = await client.post(url, data=body)
+                except Exception as e:
+                    last_status = 0
+                    last_text = str(e)
+                    logger.error("create_user xui_req_error trace=%s url=%s err=%s", trace_id, url, last_text)
+                    continue
+                if 200 <= res.status_code < 300:
+                    # Try fetch fresh inbounds to locate created client and build subscription where possible
+                    sub_url = None
+                    try:
+                        # fetch inbounds
+                        inb = None
+                        clients_for_inb = []
+                        for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/panel/api/inbounds/list", "/panel/inbounds"):
+                            try:
+                                g = await client.get(panel.base_url.rstrip("/") + ep, headers={"Accept": "application/json"})
+                                if g.headers.get("content-type", "").startswith("application/json"):
+                                    dj = g.json()
+                                    arr = None
+                                    if isinstance(dj, dict):
+                                        for k in ("obj", "inbounds", "items", "data", "list"):
+                                            if isinstance(dj.get(k), list):
+                                                arr = dj.get(k)
+                                                break
+                                        if arr is None and isinstance(dj.get("data"), dict):
+                                            for k in ("items", "inbounds", "list", "obj"):
+                                                if isinstance(dj["data"].get(k), list):
+                                                    arr = dj["data"][k]
+                                                    break
+                                    elif isinstance(dj, list):
+                                        arr = dj
+                                    if isinstance(arr, list):
+                                        for it in arr:
+                                            if not isinstance(it, dict):
+                                                continue
+                                            if str(it.get("id") or it.get("tag") or it.get("remark") or "") == str(inbound_id) or str(it.get("tag") or "") == str(inbound_id):
+                                                inb = it
+                                                # extract clients list
+                                                settings = inb.get("settings")
+                                                if isinstance(settings, str):
+                                                    try:
+                                                        settings = json.loads(settings)
+                                                    except Exception:
+                                                        settings = None
+                                                if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
+                                                    clients_for_inb = settings.get("clients")
+                                                elif isinstance(inb.get("clients"), list):
+                                                    clients_for_inb = inb.get("clients")
+                                                break
+                                    if inb:
+                                        break
+                            except Exception:
+                                continue
+                        if inb:
+                            client_uuid = None
+                            client_password = None
+                            # try to find our client by email/name
+                            for c in (clients_for_inb or []):
+                                if not isinstance(c, dict):
+                                    continue
+                                email = str(c.get("email") or c.get("name") or c.get("username") or "")
+                                if email == payload.name:
+                                    for k in ("id", "uuid", "clientId", "client_id"):
+                                        if isinstance(c.get(k), str):
+                                            client_uuid = c.get(k)
+                                            break
+                                    # trojan often uses password
+                                    if isinstance(c.get("password"), str):
+                                        client_password = c.get("password")
+                                    break
+                            # If response JSON has the id
+                            if not client_uuid:
+                                try:
+                                    j = res.json()
+                                    if isinstance(j, dict):
+                                        for k in ("id", "uuid", "clientId", "client_id"):
+                                            if isinstance(j.get(k), str):
+                                                client_uuid = j.get(k)
+                                                break
+                                except Exception:
+                                    pass
+                            # pick identifier: uuid or password
+                            ident = client_uuid or client_password
+                            sub_url = _xui_build_share_link(panel.base_url, inb, payload.name, ident)
+                    except Exception:
+                        sub_url = None
+                    # Persist created user
+                    try:
+                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
+                        db.add(rec)
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    try:
+                        record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
+                    except Exception:
+                        pass
+                    return PanelUserCreateResponse(
+                        ok=True,
+                        username=payload.name,
+                        subscription_url=sub_url,
+                        expire=(expiry_ms // 1000) if expiry_ms else None,
+                        data_limit=(total_bytes_val if total_bytes_val else None),
+                        raw=(res.json() if res.headers.get("content-type", "").startswith("application/json") else None),
+                    )
+                last_status = res.status_code
+                last_text = res.text[:200]
+                logger.warning("create_user xui_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, last_status, last_text)
+            return PanelUserCreateResponse(ok=False, error=f"XUI responded {last_status}", raw={"error": last_text or "unknown"})
+
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
+        logger.error("create_user marzban_login_failed trace=%s panel_id=%s", trace_id, panel_id)
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
 
-    # Build body according to Marzban Add User spec: use inbounds as { protocol: [tags] }
-    bytes_limit = int(max(0, payload.volume_gb) * (1024 ** 3))
-    expire_at = datetime.now(tz=timezone.utc) + timedelta(days=max(1, payload.duration_days))
-    expire_ts = int(expire_at.timestamp())
+    # Enforce using plan
+    plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
+    if not plan:
+        logger.error("create_user plan_not_found trace=%s plan_id=%s", trace_id, payload.plan_id)
+        raise HTTPException(status_code=404, detail="Plan not found")
+    # Deduct wallet for non-root admins
+    try:
+        from app.core.config import get_settings
+        from app.models.root_admin import RootAdmin
+        settings = get_settings()
+        emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+        is_env_root = current_user.email.lower() in emails
+        is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == current_user.id).first() is not None
+        is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
+    except Exception:
+        is_root_admin = False
+    logger.info("create_user role_check trace=%s is_root_admin=%s", trace_id, is_root_admin)
+    if not is_root_admin:
+        # Ensure wallet exists
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+        if not wallet:
+            wallet = Wallet(user_id=current_user.id, balance=0)
+            db.add(wallet)
+            db.commit()
+            db.refresh(wallet)
+        # Check balance using effective price
+        price = _effective_price_for_user(plan)
+        wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if wb < price:
+            raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+        # Deduct and record tx (pre-deduct to prevent race)
+        wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
+        db.add(wallet)
+        db.add(tx)
+        db.commit()
+    # Data limit bytes (0 for unlimited)
+    if plan.is_data_unlimited:
+        bytes_limit = 0
+    else:
+        bytes_limit = int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
+    # Expiration (None for unlimited)
+    if plan.is_duration_unlimited:
+        expire_at = None
+        expire_ts = None  # type: ignore[assignment]
+    else:
+        days = max(1, int(plan.duration_days or 0))
+        expire_at = datetime.now(tz=timezone.utc) + timedelta(days=days)
+        expire_ts = int(expire_at.timestamp())
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
@@ -617,6 +1430,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             resp_inb.raise_for_status()
             inb_data = resp_inb.json()
         except Exception as e:
+            logger.error("create_user fetch_inbounds_failed trace=%s err=%s", trace_id, str(e))
             return PanelUserCreateResponse(ok=False, error=f"Failed to fetch inbounds: {e}")
 
         normalized: list[dict] = []
@@ -639,23 +1453,42 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             if tag and proto and tag in selected_tags:
                 proto_to_tags.setdefault(proto, []).append(tag)
 
+        # If current user has an assigned template, and template matches this panel, override selection
+        try:
+            ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+            if ut:
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                if tpl and tpl.panel_id == panel_id:
+                    tpl_inbounds = [row.inbound_id for row in db.query(TemplateInbound).filter(TemplateInbound.template_id == tpl.id).all()]
+                    selected_tpl_tags = set(tpl_inbounds)
+                    proto_to_tags = {}
+                    for it in normalized:
+                        tag = str(it.get("tag") or "").strip()
+                        proto = str(it.get("protocol") or "").strip()
+                        if tag and proto and tag in selected_tpl_tags:
+                            proto_to_tags.setdefault(proto, []).append(tag)
+        except Exception:
+            pass
+
         # Proxies object based on selected protocols
         proxies_obj = {proto: {} for proto in proto_to_tags.keys()}
 
         body = {
             "username": payload.name,
             "status": "active",
-            "expire": expire_ts,
             "data_limit": bytes_limit,
             "data_limit_reset_strategy": "no_reset",
             "proxies": proxies_obj,
             "inbounds": proto_to_tags,
         }
+        if expire_ts is not None:
+            body["expire"] = expire_ts
 
         url = panel.base_url.rstrip("/") + "/api/user"
         try:
             res = await client.post(url, json=body, headers=headers)
         except Exception as e:
+            logger.error("create_user marz_req_error trace=%s url=%s err=%s", trace_id, url, str(e))
             return PanelUserCreateResponse(ok=False, error=str(e))
 
         if res.headers.get("content-type", "").startswith("application/json"):
@@ -664,7 +1497,12 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             except Exception:
                 data = {}
         else:
-            data = {"raw_text": await res.aread()}
+            try:
+                raw_bytes = await res.aread()
+                raw_text = raw_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                raw_text = ""
+            data = {"raw_text": raw_text}
 
         if 200 <= res.status_code < 300:
             sub_url = await _extract_subscription_url(panel.base_url, data)
@@ -678,22 +1516,48 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                             sub_url = udata.get("subscription_url")
                         elif isinstance(udata, dict) and isinstance(udata.get("subscription"), str):
                             sub_url = udata.get("subscription")
-                        if not sub_url:
-                            sub_url = await _extract_subscription_url(panel.base_url, udata)
                 except Exception:
                     pass
-            # Canonicalize to base_url domain
-            sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
-            # persist created user record
+            # Persist created user locally for admin overview
             try:
-                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url)
+                # Best-effort canonicalize the URL to include panel domain
+                sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
+                rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
                 db.add(rec)
                 db.commit()
             except Exception:
                 db.rollback()
+            # Audit log for created user
+            try:
+                record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
+            except Exception:
+                pass
             return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
         else:
-            return PanelUserCreateResponse(ok=False, error=f"{res.status_code} {res.text[:400]}")
+            # Try alternative payload variants if initial failed (e.g., schema differences)
+            for body2 in _build_payload_variants(username=payload.name, bytes_limit=bytes_limit, expire_at=expire_at):
+                try:
+                    res2 = await client.post(url, json=body2, headers=headers)
+                except Exception:
+                    logger.error("create_user marz_retry_req_error trace=%s url=%s", trace_id, url)
+                    continue
+                if 200 <= res2.status_code < 300:
+                    data2 = res2.json() if res2.headers.get("content-type", "").startswith("application/json") else {}
+                    sub_url = await _extract_subscription_url(panel.base_url, data2)
+                    try:
+                        sub_url = _canonicalize_subscription_url(panel.base_url, sub_url)
+                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
+                        db.add(rec)
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                    try:
+                        record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
+                    except Exception:
+                        pass
+                    return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data2)
+            logger.warning("create_user marz_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, res.status_code, (data if isinstance(data, dict) else {}))
+            return PanelUserCreateResponse(ok=False, error=f"Panel responded {res.status_code}", raw=(data if isinstance(data, dict) else {}))
 
 
 class PanelUserDeleteRequest(BaseModel):
@@ -707,7 +1571,7 @@ class PanelUserDeleteResponse(BaseModel):
 
 
 @router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
-async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -739,4 +1603,380 @@ async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, d
         except Exception as e:
             return PanelUserDeleteResponse(ok=False, error=str(e))
 
+
+class PanelUserStatusRequest(BaseModel):
+    status: Literal["active", "disabled"]
+
+
+@router.post("/panels/{panel_id}/user/{username}/status")
+async def set_user_status(panel_id: int, username: str, payload: PanelUserStatusRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    url = panel.base_url.rstrip("/") + f"/api/user/{username}"
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        try:
+            # Fetch current user to preserve existing fields (but do NOT change expire)
+            now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+            current_body: dict = {}
+            try:
+                u = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+                if u.headers.get("content-type", "").startswith("application/json"):
+                    data = u.json()
+                    if isinstance(data, dict):
+                        current_body = data
+            except Exception:
+                pass
+
+            # Canonical PATCH body (avoid touching expire; only toggle status)
+            body_base: dict = {
+                "status": payload.status,
+                "data_limit": current_body.get("data_limit", 0),
+                "data_limit_reset_strategy": "no_reset",
+                "inbounds": current_body.get("inbounds") or {},
+                "proxies": current_body.get("proxies") or {},
+                "next_plan": {
+                    "add_remaining_traffic": False,
+                    "data_limit": 0,
+                    "expire": 0,
+                    "fire_on_either": True,
+                },
+                "note": current_body.get("note", ""),
+                "on_hold_expire_duration": 0,
+                "on_hold_timeout": current_body.get("on_hold_timeout", None),
+            }
+            # Do not include expire in status toggle requests to avoid changing duration
+
+            # Helper to (re)fetch status and confirm
+            async def _confirm_status(expected: str) -> bool:
+                try:
+                    check = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+                    if check.headers.get("content-type", "").startswith("application/json"):
+                        j = check.json()
+                        if isinstance(j, dict):
+                            st = j.get("status")
+                            expv = j.get("expire")
+                            if expected == "disabled":
+                                return (st == "disabled") or (isinstance(expv, int) and expv == 0)
+                            if expected == "active":
+                                return (st == "active") or (isinstance(expv, int) and (expv or 0) > now_ts)
+                except Exception:
+                    return False
+                return False
+
+            # Try multiple API patterns sequentially
+            attempts: list[tuple[str, str, dict]] = []
+            admin_url = panel.base_url.rstrip("/") + f"/api/admin/user/{username}"
+            url_slash = url + "/"
+            # 1) PATCH with canonical body (status)
+            attempts.append(("PATCH", url, body_base))
+            attempts.append(("PATCH", url_slash, body_base))
+            attempts.append(("PATCH", admin_url, body_base))
+            # 2) PATCH with enabled boolean
+            body_enabled = dict(body_base)
+            body_enabled["enabled"] = (payload.status == "active")
+            attempts.append(("PATCH", url, body_enabled))
+            attempts.append(("PATCH", url_slash, body_enabled))
+            attempts.append(("PATCH", admin_url, body_enabled))
+            # 3) PATCH with active boolean
+            body_active = dict(body_base)
+            body_active["active"] = (payload.status == "active")
+            attempts.append(("PATCH", url, body_active))
+            attempts.append(("PATCH", url_slash, body_active))
+            attempts.append(("PATCH", admin_url, body_active))
+            # 4) PUT variants (also without expire)
+            attempts.append(("PUT", url, body_base))
+            attempts.append(("PUT", url_slash, body_base))
+            attempts.append(("PUT", admin_url, body_base))
+            # 5) Status endpoints
+            attempts.append(("POST", panel.base_url.rstrip("/") + f"/api/user/{username}/status", {"status": payload.status}))
+            attempts.append(("PATCH", panel.base_url.rstrip("/") + f"/api/user/{username}/status", {"status": payload.status}))
+            attempts.append(("POST", panel.base_url.rstrip("/") + f"/api/admin/user/{username}/status", {"status": payload.status}))
+            # 6) Action endpoints enable/disable
+            action_endpoints_enable = [
+                panel.base_url.rstrip("/") + f"/api/user/{username}/enable",
+                panel.base_url.rstrip("/") + f"/api/user/{username}/activate",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/enable",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/activate",
+            ]
+            action_endpoints_disable = [
+                panel.base_url.rstrip("/") + f"/api/user/{username}/disable",
+                panel.base_url.rstrip("/") + f"/api/user/{username}/deactivate",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/disable",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/deactivate",
+                panel.base_url.rstrip("/") + f"/api/user/{username}/status/disabled",
+                panel.base_url.rstrip("/") + f"/api/admin/user/{username}/status/disabled",
+            ]
+            if payload.status == "disabled":
+                for ep in action_endpoints_disable:
+                    attempts.append(("POST", ep, {}))
+            else:
+                for ep in action_endpoints_enable:
+                    attempts.append(("POST", ep, {}))
+
+            # Last-resort: only if disabling and everything else fails, try forcing expire=0 once
+            if payload.status == "disabled":
+                body_force_expire = dict(body_base)
+                body_force_expire["expire"] = 0
+                attempts.append(("PATCH", url, body_force_expire))
+
+            # Try with two header styles: Bearer and Token
+            header_variants = [headers, {**headers, "Authorization": f"Token {token}"}]
+            last_status: Optional[int] = None
+            last_text: Optional[str] = None
+            for hdrs in header_variants:
+                for method, target, body_try in attempts:
+                    try:
+                        if method == "PATCH":
+                            res = await client.patch(target, json=body_try, headers=hdrs)
+                        elif method == "PUT":
+                            res = await client.put(target, json=body_try, headers=hdrs)
+                        else:
+                            res = await client.post(target, json=body_try, headers=hdrs)
+                    except Exception as e:
+                        last_status = 0
+                        last_text = str(e)
+                        continue
+                    if 200 <= res.status_code < 300:
+                        # Confirm the status actually changed
+                        if await _confirm_status(payload.status):
+                            try:
+                                record_audit_event(db, current_user.id, f"config_user_{payload.status}", target=username, meta={"panel_id": panel_id})
+                            except Exception:
+                                pass
+                            return {"ok": True}
+                        # If not confirmed, continue trying other variants
+                    last_status = res.status_code
+                    last_text = res.text[:200]
+
+            raise HTTPException(status_code=last_status or 502, detail=last_text or "Panel status change failed")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+
+class PanelUserExtendRequest(BaseModel):
+    plan_id: int
+    template_id: Optional[int] = None
+
+
+@router.post("/panels/{panel_id}/user/{username}/extend")
+async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserExtendRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
+    if not token:
+        raise HTTPException(status_code=502, detail="Login to panel failed")
+
+    # Resolve plan and deduct wallet for non-root admins
+    plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    try:
+        from app.core.config import get_settings
+        from app.models.root_admin import RootAdmin
+        settings = get_settings()
+        emails = {e.strip().lower() for e in settings.root_admin_emails.split(",") if e.strip()}
+        is_env_root = current_user.email.lower() in emails
+        is_db_root = db.query(RootAdmin).filter(RootAdmin.user_id == current_user.id).first() is not None
+        is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
+    except Exception:
+        is_root_admin = False
+    if not is_root_admin:
+        wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
+        if not wallet:
+            wallet = Wallet(user_id=current_user.id, balance=0)
+            db.add(wallet)
+            db.commit()
+            db.refresh(wallet)
+        price = _effective_price_for_user(plan)
+        wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if wb < price:
+            raise HTTPException(status_code=402, detail="Insufficient wallet balance")
+        wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
+        db.add(wallet)
+        db.add(tx)
+        db.commit()
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        # Compute target expire RESET (always based on plan, from now)
+        if plan.is_duration_unlimited:
+            target_expire_ts = None
+        else:
+            add_days = max(1, int(plan.duration_days or 0))
+            target_expire_ts = int(datetime.now(tz=timezone.utc).timestamp()) + add_days * 86400
+
+        # Fetch current user to preserve fields and possibly inbounds/proxies
+        current_body: dict = {}
+        try:
+            u = await client.get(panel.base_url.rstrip("/") + f"/api/user/{username}", headers=headers)
+            if u.headers.get("content-type", "").startswith("application/json"):
+                data = u.json()
+                if isinstance(data, dict):
+                    current_body = data
+        except Exception:
+            current_body = {}
+
+        # Build canonical body: reset data_limit/expire by plan; preserve note/inbounds/proxies unless template overrides
+        proxies_obj = None
+        inbounds_obj = None
+        try:
+            # If a template was assigned to the operator and matches this panel, use it
+            ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+            if ut:
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                if tpl and tpl.panel_id == panel_id:
+                    resp_inb = await client.get(panel.base_url.rstrip("/") + "/api/inbounds", headers=headers)
+                    resp_inb.raise_for_status()
+                    inb_data = resp_inb.json()
+                    normalized: list[dict] = []
+                    if isinstance(inb_data, list):
+                        normalized = [x for x in inb_data if isinstance(x, dict)]
+                    elif isinstance(inb_data, dict):
+                        if isinstance(inb_data.get("items"), list):
+                            normalized = [x for x in inb_data["items"] if isinstance(x, dict)]
+                        else:
+                            for v in inb_data.values():
+                                if isinstance(v, list):
+                                    normalized.extend([x for x in v if isinstance(x, dict)])
+                    tpl_tags = {row.inbound_id for row in db.query(TemplateInbound).filter(TemplateInbound.template_id == tpl.id).all()}
+                    proto_to_tags: dict[str, list[str]] = {}
+                    for it in normalized:
+                        tag = str(it.get("tag") or "").strip()
+                        proto = str(it.get("protocol") or "").strip()
+                        if tag and proto and tag in tpl_tags:
+                            proto_to_tags.setdefault(proto, []).append(tag)
+                    proxies_obj = {proto: {} for proto in proto_to_tags.keys()}
+                    inbounds_obj = proto_to_tags
+        except Exception:
+            proxies_obj = None
+            inbounds_obj = None
+
+        # Data limit RESET based on plan (0 for unlimited)
+        bytes_limit = 0 if plan.is_data_unlimited else int(max(0, int(plan.data_quota_mb or 0)) * (1024 ** 2))
+
+        body_base: dict = {
+            "username": username,
+            "data_limit": bytes_limit,
+            "data_limit_reset_strategy": "no_reset",
+            "status": current_body.get("status", "active"),
+            "next_plan": {
+                "add_remaining_traffic": False,
+                "data_limit": 0,
+                "expire": 0,
+                "fire_on_either": True,
+            },
+            "note": current_body.get("note", ""),
+            "on_hold_expire_duration": 0,
+            "on_hold_timeout": current_body.get("on_hold_timeout", None),
+        }
+        if target_expire_ts is not None:
+            body_base["expire"] = target_expire_ts
+        if proxies_obj is not None and inbounds_obj is not None:
+            body_base["proxies"] = proxies_obj
+            body_base["inbounds"] = inbounds_obj
+        else:
+            body_base["proxies"] = current_body.get("proxies") or {}
+            body_base["inbounds"] = current_body.get("inbounds") or {}
+
+        user_url = panel.base_url.rstrip("/") + f"/api/user/{username}"
+        admin_user_url = panel.base_url.rstrip("/") + f"/api/admin/user/{username}"
+        base_user_url = panel.base_url.rstrip("/") + "/api/user"
+
+        # Try multiple methods/endpoints similar to status change flow
+        # Build variant bodies to handle API differences
+        variant_bodies: list[dict] = []
+        variant_bodies.append(body_base)
+        # Variant: force active status
+        body_force_active = dict(body_base)
+        body_force_active["status"] = "active"
+        variant_bodies.append(body_force_active)
+        # Variant: use days fields for expire if limited
+        if target_expire_ts is not None:
+            add_days = max(1, int(plan.duration_days or 0))
+            body_expire_days = dict(body_base)
+            # Remove timestamp to avoid conflicts
+            if "expire" in body_expire_days:
+                del body_expire_days["expire"]
+            for k in ("expire_in_days", "expire_days", "duration_days"):
+                body_expire_days[k] = add_days
+            variant_bodies.append(body_expire_days)
+        # Variant: data_limit synonyms
+        body_limit = dict(body_base)
+        if "data_limit" in body_limit:
+            dl = body_limit.get("data_limit", 0)
+            body_limit["limit"] = dl
+            body_limit["quota"] = dl
+        variant_bodies.append(body_limit)
+
+        attempts: list[tuple[str, str, dict]] = []
+        for vb in variant_bodies:
+            attempts.append(("PATCH", user_url, vb))
+            attempts.append(("PATCH", user_url + "/", vb))
+            attempts.append(("PATCH", admin_user_url, vb))
+            attempts.append(("PUT", user_url, vb))
+            attempts.append(("PUT", admin_user_url, vb))
+            # Some panels update via POST /api/user as upsert
+            attempts.append(("POST", base_user_url, vb))
+
+        header_variants = [headers, {**headers, "Authorization": f"Token {token}"}]
+        last_status: Optional[int] = None
+        last_text: Optional[str] = None
+        for hdrs in header_variants:
+            for method, target, body_try in attempts:
+                try:
+                    if method == "PATCH":
+                        res = await client.patch(target, json=body_try, headers=hdrs)
+                    elif method == "PUT":
+                        res = await client.put(target, json=body_try, headers=hdrs)
+                    else:
+                        res = await client.post(target, json=body_try, headers=hdrs)
+                except Exception as e:
+                    last_status = 0
+                    last_text = str(e)
+                    continue
+                if 200 <= res.status_code < 300:
+                    # best-effort reset traffic counters via common endpoints
+                    for ep in [
+                        panel.base_url.rstrip("/") + f"/api/user/{username}/reset",
+                        panel.base_url.rstrip("/") + f"/api/user/{username}/reset_traffic",
+                        panel.base_url.rstrip("/") + f"/api/user/{username}/reset-traffic",
+                    ]:
+                        try:
+                            await client.post(ep, headers=hdrs)
+                        except Exception:
+                            pass
+                    try:
+                        record_audit_event(db, current_user.id, "extend_config_user", target=username, meta={"panel_id": panel_id, "plan_id": payload.plan_id, "template_id": payload.template_id})
+                    except Exception:
+                        pass
+                    return {"ok": True}
+                last_status = res.status_code
+                last_text = res.text[:200]
+
+        raise HTTPException(status_code=last_status or 502, detail=last_text or "Panel extend failed")
 

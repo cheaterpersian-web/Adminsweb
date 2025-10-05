@@ -1,0 +1,8 @@
+__pycache__
+.pytest_cache
+.git
+Dockerfile*
+README.md
+**/.DS_Store
+.env*
+*.sqlite*

@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     api_prefix: str = Field(default="/api", alias="API_PREFIX")
     project_name: str = Field(default="Marzban Admin Panel", alias="PROJECT_NAME")
     env: str = Field(default="development", alias="ENV")
-    expose_errors_public: bool = Field(default=False, alias="EXPOSE_ERRORS_PUBLIC")
+    expose_errors_public: bool = Field(default=True, alias="EXPOSE_ERRORS_PUBLIC")
 
     # Access Control
     root_admin_emails: str = Field(default="admin@example.com", alias="ROOT_ADMIN_EMAILS")

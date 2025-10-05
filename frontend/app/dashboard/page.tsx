@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
+import GlitchText from "../../components/GlitchText";
 
 export default function DashboardPage() {
   const api = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
@@ -26,7 +27,7 @@ export default function DashboardPage() {
   return (
     <main className="space-y-6">
       <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <h1 className="text-2xl font-semibold tracking-tight"><GlitchText className="neon-text">Dashboard</GlitchText></h1>
         <p className="text-sm text-muted-foreground">API: {api}</p>
       </div>
 
@@ -34,22 +35,22 @@ export default function DashboardPage() {
         <h2 className="text-lg font-semibold">System Health</h2>
         {health ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card>
+            <Card className="neon-card">
               <CardContent className="p-4">
                 <div className="text-sm text-muted-foreground">CPU</div>
                 <div className="text-2xl font-semibold">{health.cpu}%</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="neon-card">
               <CardContent className="p-4">
                 <div className="text-sm text-muted-foreground">Database</div>
-                <div className={`text-lg font-semibold ${health.database ? "text-green-600" : "text-red-600"}`}>{health.database ? "OK" : "DOWN"}</div>
+                <div className={`${health.database ? "text-green-600" : "text-red-600"} text-lg font-semibold`}>{health.database ? "OK" : "DOWN"}</div>
               </CardContent>
             </Card>
-            <Card>
+            <Card className="neon-card">
               <CardContent className="p-4">
                 <div className="text-sm text-muted-foreground">Redis</div>
-                <div className={`text-lg font-semibold ${health.redis ? "text-green-600" : "text-red-600"}`}>{health.redis ? "OK" : "DOWN"}</div>
+                <div className={`${health.redis ? "text-green-600" : "text-red-600"} text-lg font-semibold`}>{health.redis ? "OK" : "DOWN"}</div>
               </CardContent>
             </Card>
           </div>
@@ -60,7 +61,7 @@ export default function DashboardPage() {
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">Recent Notifications</h2>
-        <Card>
+        <Card className="neon-card">
           <CardContent className="p-0">
             <div className="divide-y">
               {notifications.slice(0, 10).map((n:any)=> (
