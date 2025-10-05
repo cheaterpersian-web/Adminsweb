@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -19,6 +19,19 @@ export default function ConfigsPage() {
   const [delUser, setDelUser] = useState("");
   const [delBusy, setDelBusy] = useState(false);
   const [delMsg, setDelMsg] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const me = await apiFetch("/auth/me");
+        setIsAdmin(me?.role === "admin");
+      } catch {
+        setIsAdmin(false);
+      }
+    };
+    void check();
+  }, []);
 
   const loadPanels = async () => {
     try {
@@ -234,26 +247,28 @@ export default function ConfigsPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>حذف کاربر از پنل</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={deleteUser} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-            <div className="space-y-1">
-              <label className="text-sm">نام کاربر</label>
-              <input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required />
-            </div>
-            {Array.isArray(panels) && panels.length > 0 && (
-              <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
-            )}
-            <div className="col-span-full flex flex-col sm:flex-row gap-2">
-              <Button type="submit" variant="destructive" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
-            </div>
-            {delMsg && <div className="col-span-full text-sm text-muted-foreground">{delMsg}</div>}
-          </form>
-        </CardContent>
-      </Card>
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>حذف کاربر از پنل</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={deleteUser} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+              <div className="space-y-1">
+                <label className="text-sm">نام کاربر</label>
+                <input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required />
+              </div>
+              {Array.isArray(panels) && panels.length > 0 && (
+                <DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} />
+              )}
+              <div className="col-span-full flex flex-col sm:flex-row gap-2">
+                <Button type="submit" variant="destructive" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
+              </div>
+              {delMsg && <div className="col-span-full text-sm text-muted-foreground">{delMsg}</div>}
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </main>
   );
 }

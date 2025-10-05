@@ -707,7 +707,7 @@ class PanelUserDeleteResponse(BaseModel):
 
 
 @router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
-async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
