@@ -7,14 +7,20 @@ import { formatToman } from "../../lib/utils";
 import { Button } from "../../components/ui/button";
 
 export default function WalletsAdminPage() {
+  const [isRootAdmin, setIsRootAdmin] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [balances, setBalances] = useState<Record<number, string>>({});
   const [amountByUser, setAmountByUser] = useState<Record<number, string>>({});
   const [reasonByUser, setReasonByUser] = useState<Record<number, string>>({});
   const [targetByUser, setTargetByUser] = useState<Record<number, string>>({});
+  const [myBalance, setMyBalance] = useState<string>("0.00");
+  const [myTxs, setMyTxs] = useState<any[]>([]);
+  const [loadingMy, setLoadingMy] = useState(true);
 
   const load = async () => {
     try {
+      const me = await apiFetch("/auth/me");
+      setIsRootAdmin(!!me?.is_root_admin);
       const us = await apiFetch("/users");
       setUsers(us);
       const map: Record<number, string> = {};
@@ -25,6 +31,21 @@ export default function WalletsAdminPage() {
     } catch {}
   };
   useEffect(()=> { load(); }, []);
+
+  const loadMy = async () => {
+    setLoadingMy(true);
+    try {
+      const [w, t] = await Promise.all([
+        apiFetch("/wallet/me"),
+        apiFetch("/wallet/me/transactions"),
+      ]);
+      if (w && typeof w.balance !== "undefined") setMyBalance(String(w.balance));
+      setMyTxs((t && Array.isArray(t.items)) ? t.items : []);
+    } catch {
+      setMyTxs([]);
+    } finally { setLoadingMy(false); }
+  };
+  useEffect(()=> { if (!isRootAdmin) { void loadMy(); } }, [isRootAdmin]);
 
   const adjust = async (uid: number) => {
     const amount = amountByUser[uid];
@@ -46,6 +67,55 @@ export default function WalletsAdminPage() {
     await load();
   };
 
+  // If not root admin, show personal wallet view here
+  if (!isRootAdmin) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Wallet</h1>
+          <p className="text-sm text-muted-foreground">موجودی و تراکنش‌های شما</p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Balance: {formatToman(myBalance)}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Transactions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-auto">
+              {loadingMy && <div className="text-sm text-muted-foreground">در حال بارگذاری…</div>}
+              <table className="min-w-full text-sm">
+                <thead className="bg-secondary">
+                  <tr>
+                    <th className="p-2 text-left">Amount</th>
+                    <th className="p-2 text-left">Reason</th>
+                    <th className="p-2 text-left">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {myTxs.map((t:any)=> (
+                    <tr key={t.id} className="border-t">
+                      <td className="p-2">{formatToman(t.amount)}</td>
+                      <td className="p-2">{t.reason || '-'}</td>
+                      <td className="p-2">{new Date(t.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {!loadingMy && myTxs.length === 0 && (
+                    <tr><td className="p-3 text-muted-foreground" colSpan={3}>موردی نیست</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Root admin view
   return (
     <div className="space-y-6">
       <div>

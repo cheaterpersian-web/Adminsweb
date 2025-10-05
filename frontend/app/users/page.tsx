@@ -88,7 +88,6 @@ export default function UsersPage() {
         <select className="border rounded-md h-10 px-3" value={form.role} onChange={e=>setForm(v=>({...v,role:e.target.value}))}>
           <option value="admin">admin</option>
           <option value="operator">operator</option>
-          <option value="viewer">viewer</option>
         </select>
         <Button type="submit" disabled={loading}>Create</Button>
       </form>
@@ -120,7 +119,6 @@ export default function UsersPage() {
                   <select className="border rounded-md h-9 px-2" defaultValue={u.role} onChange={e=>updateUser(u.id, { role: e.target.value })}>
                     <option value="admin">admin</option>
                     <option value="operator">operator</option>
-                    <option value="viewer">viewer</option>
                   </select>
                 </td>
                 <td className="p-2">{u.is_active ? "Yes" : "No"}</td>

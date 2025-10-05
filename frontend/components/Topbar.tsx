@@ -12,6 +12,7 @@ export default function Topbar() {
   const [open, setOpen] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -23,6 +24,7 @@ export default function Topbar() {
         if (res.ok) {
           const me = await res.json();
           setIsRootAdmin(!!me?.is_root_admin);
+          setRole(String(me?.role || ""));
         }
       } catch {}
     };
@@ -63,28 +65,33 @@ export default function Topbar() {
             <span className="block w-4 h-0.5 bg-foreground mb-1"></span>
             <span className="block w-4 h-0.5 bg-foreground"></span>
           </button>
-          <Link href="/dashboard" className="font-semibold text-transparent bg-clip-text bg-gradient-to-r from-brand-start to-brand-end">Marzban Admin</Link>
+          <Link href="/dashboard" className="font-semibold text-transparent bg-clip-text bg-gradient-to-r from-brand-start to-brand-end drop-shadow-[0_0_8px_hsl(var(--neon-cyan)/0.4)]">Marzban Admin</Link>
           <nav className="hidden md:flex items-center gap-5 text-sm text-muted-foreground">
             <Link href="/dashboard" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Dashboard</Link>
             {isRootAdmin && <Link href="/users" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Users</Link>}
             <Link href="/configs" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Configs</Link>
-            <Link href="/audit" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Audit</Link>
+            {isRootAdmin && <Link href="/audit" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Audit</Link>}
             {isRootAdmin && <Link href="/panels" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Panels</Link>}
             {isRootAdmin && <Link href="/plans" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Templates</Link>}
+            {isRootAdmin && <Link href="/plan-templates" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Plan Templates</Link>}
             {isRootAdmin && <Link href="/backup" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Backup</Link>}
             {!isRootAdmin && <Link href="/wallet" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Wallet</Link>}
             {isRootAdmin && <Link href="/wallets" className="relative hover:text-foreground transition-colors after:absolute after:-bottom-1 after:left-0 after:h-0.5 after:w-0 after:bg-primary after:rounded-full hover:after:w-full after:transition-all">Wallets</Link>}
           </nav>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow transition">
-            Wallet: {walletBalance ? formatToman(walletBalance) : "-"}
-          </Link>
-          <Link href="/wallet" className="inline-flex sm:hidden items-center rounded-full border px-2 py-1 text-xs font-medium hover:shadow transition">
-            {walletBalance ? formatToman(walletBalance) : "Wallet"}
-          </Link>
-          <Button variant="default" size="sm" onClick={logout}>Logout</Button>
+          {role === "operator" && (
+            <>
+              <Link href="/wallet" className="hidden sm:inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium hover:shadow-[0_0_20px_hsl(var(--neon-pink)/0.35)] transition">
+                Wallet: {walletBalance ? formatToman(walletBalance) : "-"}
+              </Link>
+              <Link href="/wallet" className="inline-flex sm:hidden items-center rounded-full border px-2 py-1 text-xs font-medium hover:shadow-[0_0_20px_hsl(var(--neon-pink)/0.35)] transition">
+                {walletBalance ? formatToman(walletBalance) : "Wallet"}
+              </Link>
+            </>
+          )}
+          <Button variant="default" size="sm" className="btn-neon" onClick={logout}>Logout</Button>
         </div>
       </div>
       {open && (
@@ -93,12 +100,12 @@ export default function Topbar() {
             <Link href="/dashboard" className="py-2" onClick={()=>setOpen(false)}>Dashboard</Link>
             {isRootAdmin && <Link href="/users" className="py-2" onClick={()=>setOpen(false)}>Users</Link>}
             <Link href="/configs" className="py-2" onClick={()=>setOpen(false)}>Configs</Link>
-            <Link href="/audit" className="py-2" onClick={()=>setOpen(false)}>Audit</Link>
+            {isRootAdmin && <Link href="/audit" className="py-2" onClick={()=>setOpen(false)}>Audit</Link>}
             {isRootAdmin && <Link href="/panels" className="py-2" onClick={()=>setOpen(false)}>Panels</Link>}
             {isRootAdmin && <Link href="/plans" className="py-2" onClick={()=>setOpen(false)}>Plans</Link>}
             {isRootAdmin && <Link href="/templates" className="py-2" onClick={()=>setOpen(false)}>Templates</Link>}
+            {isRootAdmin && <Link href="/plan-templates" className="py-2" onClick={()=>setOpen(false)}>Plan Templates</Link>}
             {isRootAdmin && <Link href="/backup" className="py-2" onClick={()=>setOpen(false)}>Backup</Link>}
-            {/* Wallet balance shown in header near Logout on mobile; remove from list */}
             {isRootAdmin && <Link href="/wallets" className="py-2" onClick={()=>setOpen(false)}>Wallets</Link>}
           </nav>
         </div>

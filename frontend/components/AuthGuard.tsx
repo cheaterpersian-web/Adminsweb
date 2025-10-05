@@ -24,6 +24,22 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
         router.replace("/auth/login");
         return;
       }
+      // Role-based page access: operators only allowed on dashboard and configs
+      try {
+        const base = process.env.NEXT_PUBLIC_API_BASE_URL || "/api";
+        const res = await fetch(`${base}/auth/me`, { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const me = await res.json();
+          const role = String(me?.role || "");
+          const isOperator = role === "operator";
+          const allowedForOperator = ["/dashboard", "/configs", "/forbidden", "/"];
+          const isAllowed = allowedForOperator.some(p => pathname === p || pathname?.startsWith(p + "/"));
+          if (isOperator && !isAllowed) {
+            router.replace("/forbidden");
+            return;
+          }
+        }
+      } catch {}
       setReady(true);
     };
     run();

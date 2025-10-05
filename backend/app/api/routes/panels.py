@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from decimal import Decimal, ROUND_HALF_UP
 import httpx
+import logging
 
 from app.db.session import get_db
 from app.models.user import User
@@ -19,6 +21,7 @@ from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
 from app.models.plan import Plan
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.template import UserTemplate, Template, TemplateInbound
+from app.models.plan_template import UserPlanTemplate, PlanTemplateItem
 from app.services.audit import record_audit_event
 
 
@@ -424,7 +427,7 @@ class PanelUsersResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/users", response_model=PanelUsersResponse)
-async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -692,7 +695,7 @@ class PanelUserInfoResponse(BaseModel):
 
 
 @router.get("/panels/{panel_id}/user/{username}/info", response_model=PanelUserInfoResponse)
-async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def get_panel_user_info(panel_id: int, username: str, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1093,9 +1096,14 @@ def _xui_build_share_link(base_url: str, inbound: dict, client_email: str, clien
 
 
 @router.post("/panels/{panel_id}/create_user", response_model=PanelUserCreateResponse)
-async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, request: Request, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    logger = logging.getLogger("app")
+    trace_id = getattr(request.state, "trace_id", "-")
+    logger.info("create_user start trace=%s panel_id=%s user_id=%s role=%s plan_id=%s", trace_id, panel_id, current_user.id, current_user.role, payload.plan_id)
+
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
+        logger.warning("create_user panel_not_found panel_id=%s", panel_id)
         raise HTTPException(status_code=404, detail="Panel not found")
     # Require inbound selection to avoid invalid subscription links
     sel_exists = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
@@ -1117,6 +1125,21 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 raise
             except Exception:
                 raise HTTPException(status_code=403, detail="Operator panel credentials not found")
+    # Helper: effective price for current user/plan
+    def _effective_price_for_user(plan_obj: Plan) -> Decimal:
+        try:
+            base = Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if current_user.role != "operator":
+                return base
+            upt = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == current_user.id).first()
+            if not upt:
+                return base
+            it = db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id, PlanTemplateItem.plan_id == plan_obj.id).first()
+            return Decimal(str(it.price_override)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if it else base
+        except Exception as e:
+            logger.error("create_user effective_price_error user_id=%s plan_id=%s err=%s", current_user.id, plan_obj.id, str(e))
+            return Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     # XUI branch: cookie-based login and addClient API
     if getattr(panel, "type", "marzban") == "xui":
         async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
@@ -1139,6 +1162,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 if logged_in:
                     break
             if not logged_in:
+                logger.error("create_user xui_login_failed trace=%s panel_id=%s", trace_id, panel_id)
                 return PanelUserCreateResponse(ok=False, error="Login to XUI failed")
 
             # Determine selected inbound (XUI: single inbound required)
@@ -1154,6 +1178,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             # Resolve plan for limits
             plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
             if not plan:
+                logger.error("create_user plan_not_found trace=%s plan_id=%s", trace_id, payload.plan_id)
                 raise HTTPException(status_code=404, detail="Plan not found")
 
             # Deduct wallet for non-root admins (already handled below for marzban; do here for xui as well)
@@ -1168,17 +1193,18 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             except Exception:
                 is_root_admin = False
             if not is_root_admin:
-                from app.models.wallet import Wallet, WalletTransaction
                 wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
                 if not wallet:
                     wallet = Wallet(user_id=current_user.id, balance=0)
                     db.add(wallet)
                     db.commit()
                     db.refresh(wallet)
-                if (wallet.balance or 0) < plan.price:
+                price = _effective_price_for_user(plan)
+                wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                if wb < price:
                     raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-                wallet.balance = (wallet.balance or 0) - plan.price
-                tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Create user '{payload.name}' on XUI panel {panel_id} (plan {plan.name})")
+                wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on XUI panel {panel_id} (plan {plan.name})")
                 db.add(wallet)
                 db.add(tx)
                 db.commit()
@@ -1235,6 +1261,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 except Exception as e:
                     last_status = 0
                     last_text = str(e)
+                    logger.error("create_user xui_req_error trace=%s url=%s err=%s", trace_id, url, last_text)
                     continue
                 if 200 <= res.status_code < 300:
                     # Try fetch fresh inbounds to locate created client and build subscription where possible
@@ -1337,15 +1364,18 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     )
                 last_status = res.status_code
                 last_text = res.text[:200]
+                logger.warning("create_user xui_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, last_status, last_text)
             return PanelUserCreateResponse(ok=False, error=f"XUI responded {last_status}", raw={"error": last_text or "unknown"})
 
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
+        logger.error("create_user marzban_login_failed trace=%s panel_id=%s", trace_id, panel_id)
         return PanelUserCreateResponse(ok=False, error="Login to panel failed")
 
     # Enforce using plan
     plan = db.query(Plan).filter(Plan.id == payload.plan_id).first()
     if not plan:
+        logger.error("create_user plan_not_found trace=%s plan_id=%s", trace_id, payload.plan_id)
         raise HTTPException(status_code=404, detail="Plan not found")
     # Deduct wallet for non-root admins
     try:
@@ -1358,6 +1388,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         is_root_admin = current_user.role == "admin" and (is_env_root or is_db_root)
     except Exception:
         is_root_admin = False
+    logger.info("create_user role_check trace=%s is_root_admin=%s", trace_id, is_root_admin)
     if not is_root_admin:
         # Ensure wallet exists
         wallet = db.query(Wallet).filter(Wallet.user_id == current_user.id).first()
@@ -1366,12 +1397,14 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             db.add(wallet)
             db.commit()
             db.refresh(wallet)
-        # Check balance
-        if (wallet.balance or 0) < plan.price:
+        # Check balance using effective price
+        price = _effective_price_for_user(plan)
+        wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
         # Deduct and record tx (pre-deduct to prevent race)
-        wallet.balance = (wallet.balance or 0) - plan.price
-        tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
+        wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Create user '{payload.name}' on panel {panel_id} (plan {plan.name})")
         db.add(wallet)
         db.add(tx)
         db.commit()
@@ -1397,6 +1430,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             resp_inb.raise_for_status()
             inb_data = resp_inb.json()
         except Exception as e:
+            logger.error("create_user fetch_inbounds_failed trace=%s err=%s", trace_id, str(e))
             return PanelUserCreateResponse(ok=False, error=f"Failed to fetch inbounds: {e}")
 
         normalized: list[dict] = []
@@ -1454,6 +1488,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
         try:
             res = await client.post(url, json=body, headers=headers)
         except Exception as e:
+            logger.error("create_user marz_req_error trace=%s url=%s err=%s", trace_id, url, str(e))
             return PanelUserCreateResponse(ok=False, error=str(e))
 
         if res.headers.get("content-type", "").startswith("application/json"):
@@ -1462,7 +1497,12 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
             except Exception:
                 data = {}
         else:
-            data = {"raw_text": await res.aread()}
+            try:
+                raw_bytes = await res.aread()
+                raw_text = raw_bytes.decode("utf-8", errors="replace")
+            except Exception:
+                raw_text = ""
+            data = {"raw_text": raw_text}
 
         if 200 <= res.status_code < 300:
             sub_url = await _extract_subscription_url(panel.base_url, data)
@@ -1499,6 +1539,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 try:
                     res2 = await client.post(url, json=body2, headers=headers)
                 except Exception:
+                    logger.error("create_user marz_retry_req_error trace=%s url=%s", trace_id, url)
                     continue
                 if 200 <= res2.status_code < 300:
                     data2 = res2.json() if res2.headers.get("content-type", "").startswith("application/json") else {}
@@ -1515,6 +1556,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                     except Exception:
                         pass
                     return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data2)
+            logger.warning("create_user marz_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, res.status_code, (data if isinstance(data, dict) else {}))
             return PanelUserCreateResponse(ok=False, error=f"Panel responded {res.status_code}", raw=(data if isinstance(data, dict) else {}))
 
 
@@ -1529,7 +1571,7 @@ class PanelUserDeleteResponse(BaseModel):
 
 
 @router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
-async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1567,7 +1609,7 @@ class PanelUserStatusRequest(BaseModel):
 
 
 @router.post("/panels/{panel_id}/user/{username}/status")
-async def set_user_status(panel_id: int, username: str, payload: PanelUserStatusRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def set_user_status(panel_id: int, username: str, payload: PanelUserStatusRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1732,7 +1774,7 @@ class PanelUserExtendRequest(BaseModel):
 
 
 @router.post("/panels/{panel_id}/user/{username}/extend")
-async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserExtendRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserExtendRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -1769,10 +1811,12 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             db.add(wallet)
             db.commit()
             db.refresh(wallet)
-        if (wallet.balance or 0) < plan.price:
+        price = _effective_price_for_user(plan)
+        wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
-        wallet.balance = (wallet.balance or 0) - plan.price
-        tx = WalletTransaction(user_id=current_user.id, amount=-plan.price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
+        wallet.balance = (wb - price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        tx = WalletTransaction(user_id=current_user.id, amount=-price, reason=f"Extend user '{username}' on panel {panel_id} (plan {plan.name})")
         db.add(wallet)
         db.add(tx)
         db.commit()

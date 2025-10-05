@@ -30,6 +30,7 @@ class PlanUpdate(BaseModel):
 
 class PlanRead(PlanBase):
     id: int
+    effective_price: Optional[condecimal(max_digits=12, decimal_places=2)] = None
 
     class Config:
         from_attributes = True
