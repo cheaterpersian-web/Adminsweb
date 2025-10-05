@@ -11,6 +11,7 @@ from app.models.panel_inbound import PanelInbound
 from app.models.panel_created_user import PanelCreatedUser
 from app.models.user_panel_credentials import UserPanelCredential
 from pydantic import BaseModel, AnyHttpUrl
+from app.services.audit import record_audit_event
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urlunparse
 from sqlalchemy.exc import IntegrityError, ProgrammingError, SQLAlchemyError
@@ -691,6 +692,23 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, d
                 db.commit()
             except Exception:
                 db.rollback()
+            # Audit: wallet_charge event remains in history for operators and admins
+            try:
+                record_audit_event(
+                    db,
+                    user_id=current_user.id,
+                    action="wallet_charge",
+                    target=f"panel:{panel_id}:{payload.name}",
+                    meta={
+                        "panel_id": panel_id,
+                        "username": payload.name,
+                        "volume_gb": payload.volume_gb,
+                        "duration_days": payload.duration_days,
+                        "subscription_url": sub_url,
+                    },
+                )
+            except Exception:
+                pass
             return PanelUserCreateResponse(ok=True, username=payload.name, subscription_url=sub_url, raw=data)
         else:
             return PanelUserCreateResponse(ok=False, error=f"{res.status_code} {res.text[:400]}")
@@ -738,5 +756,102 @@ async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, d
             return PanelUserDeleteResponse(ok=False, status=res.status_code, error=res.text[:200])
         except Exception as e:
             return PanelUserDeleteResponse(ok=False, error=str(e))
+
+
+class PanelUserRenewRequest(BaseModel):
+    username: str
+    add_days: int = 0
+    add_volume_gb: float = 0.0
+
+
+class PanelUserRenewResponse(BaseModel):
+    ok: bool
+    status: Optional[int] = None
+    error: Optional[str] = None
+
+
+@router.post("/panels/{panel_id}/renew_user", response_model=PanelUserRenewResponse)
+async def renew_user_on_panel(panel_id: int, payload: PanelUserRenewRequest, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    panel = db.query(Panel).filter(Panel.id == panel_id).first()
+    if not panel:
+        raise HTTPException(status_code=404, detail="Panel not found")
+    cred_username = panel.username
+    cred_password = panel.password
+    if current_user.role == "operator":
+        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+        if not rec:
+            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+        cred_username = rec.username
+        cred_password = rec.password
+    token = await _login_get_token(panel.base_url, cred_username, cred_password)
+    if not token:
+        return PanelUserRenewResponse(ok=False, error="Login to panel failed")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    # Fetch current values
+    current_expire: Optional[int] = None
+    current_limit: Optional[int] = None
+    try:
+        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+            info = await client.get(panel.base_url.rstrip("/") + f"/api/user/{payload.username}", headers=headers)
+            if info.headers.get("content-type", "").startswith("application/json"):
+                j = info.json()
+                if isinstance(j, dict):
+                    if isinstance(j.get("expire"), int):
+                        current_expire = int(j.get("expire"))
+                    if isinstance(j.get("data_limit"), int):
+                        current_limit = int(j.get("data_limit"))
+    except Exception:
+        pass
+
+    # Compute new values
+    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+    add_days = max(0, int(payload.add_days or 0))
+    add_bytes = int(max(0.0, float(payload.add_volume_gb or 0.0)) * (1024 ** 3))
+    new_expire = None
+    if add_days > 0:
+        base_expire = current_expire if (current_expire and current_expire > now_ts) else now_ts
+        new_expire = base_expire + (add_days * 86400)
+    new_limit = None
+    if add_bytes > 0:
+        new_limit = (current_limit or 0) + add_bytes
+    if new_expire is None and new_limit is None:
+        return PanelUserRenewResponse(ok=False, error="Nothing to renew: provide add_days or add_volume_gb")
+
+    body: dict = {}
+    if new_expire is not None:
+        body["expire"] = new_expire
+    if new_limit is not None:
+        body["data_limit"] = new_limit
+
+    # Apply update on panel
+    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        try:
+            res = await client.put(panel.base_url.rstrip("/") + f"/api/user/{payload.username}", json=body, headers=headers)
+        except Exception as e:
+            return PanelUserRenewResponse(ok=False, error=str(e))
+
+    if 200 <= res.status_code < 300:
+        try:
+            record_audit_event(
+                db,
+                user_id=current_user.id,
+                action="wallet_renew",
+                target=f"panel:{panel_id}:{payload.username}",
+                meta={
+                    "panel_id": panel_id,
+                    "username": payload.username,
+                    "add_days": add_days,
+                    "add_volume_gb": float(payload.add_volume_gb or 0.0),
+                    "new_expire": new_expire,
+                    "new_data_limit": new_limit,
+                    "prev_expire": current_expire,
+                    "prev_data_limit": current_limit,
+                },
+            )
+        except Exception:
+            pass
+        return PanelUserRenewResponse(ok=True, status=res.status_code)
+    return PanelUserRenewResponse(ok=False, status=res.status_code, error=res.text[:200])
 
 
