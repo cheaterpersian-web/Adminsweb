@@ -22,7 +22,7 @@ class NodeUpdate(BaseModel):
 
 
 @router.get("/nodes", response_model=List[dict])
-def list_nodes(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator", "viewer"]))):
+def list_nodes(db: Session = Depends(get_db), _: User = Depends(require_roles(["admin", "operator"]))):
     nodes = db.query(AdminNode).order_by(AdminNode.id.desc()).all()
     return [{"id": n.id, "name": n.name, "status": n.status, "last_seen": n.last_seen, "metadata": n.meta} for n in nodes]
 

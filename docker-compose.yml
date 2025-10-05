@@ -22,8 +22,8 @@ services:
 
   backend:
     build:
-      context: .
-      dockerfile: backend/Dockerfile
+      context: ./backend
+      dockerfile: Dockerfile
     environment:
       DATABASE_URL: postgresql+psycopg://admin:admin@postgres:5432/marzban
       REDIS_URL: redis://redis:6379/0
@@ -35,8 +35,7 @@ services:
     depends_on:
       - postgres
       - redis
-    ports:
-      - "8000:8000"
+    # Do not publish backend port on host; NGINX and other services reach it inside the network
     volumes:
       - backend-data:/data
 
@@ -75,8 +74,8 @@ services:
       - backend
       - frontend
     ports:
-      - "80:80"
-      - "443:443"
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
 
 volumes:
   pgdata:

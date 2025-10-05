@@ -6,7 +6,7 @@ class UserBase(BaseModel):
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
-    role: str = "viewer"
+    role: str = "operator"
     is_active: bool = True
 
 
@@ -36,6 +36,8 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
 
 
 class UserRead(UserBase):
