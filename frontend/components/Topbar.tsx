@@ -10,6 +10,7 @@ export default function Topbar() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [isRootAdmin, setIsRootAdmin] = useState(false);
+  const [role, setRole] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -21,6 +22,7 @@ export default function Topbar() {
         if (res.ok) {
           const me = await res.json();
           setIsRootAdmin(!!me?.is_root_admin);
+          setRole(me?.role || null);
         }
       } catch {}
     };
@@ -47,6 +49,7 @@ export default function Topbar() {
             <Link href="/dashboard" className="hover:text-foreground">Dashboard</Link>
             {isRootAdmin && <Link href="/users" className="hover:text-foreground">Users</Link>}
             <Link href="/configs" className="hover:text-foreground">Configs</Link>
+            {(role === "admin" || role === "operator") && <Link href="/wallet" className="hover:text-foreground">Wallet</Link>}
             <Link href="/audit" className="hover:text-foreground">Audit</Link>
             {isRootAdmin && <Link href="/panels" className="hover:text-foreground">Panels</Link>}
           </nav>
@@ -61,6 +64,7 @@ export default function Topbar() {
             <Link href="/dashboard" onClick={()=>setOpen(false)}>Dashboard</Link>
             {isRootAdmin && <Link href="/users" onClick={()=>setOpen(false)}>Users</Link>}
             <Link href="/configs" onClick={()=>setOpen(false)}>Configs</Link>
+            {(role === "admin" || role === "operator") && <Link href="/wallet" onClick={()=>setOpen(false)}>Wallet</Link>}
             <Link href="/audit" onClick={()=>setOpen(false)}>Audit</Link>
             {isRootAdmin && <Link href="/panels" onClick={()=>setOpen(false)}>Panels</Link>}
           </nav>
