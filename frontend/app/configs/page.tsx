@@ -163,7 +163,16 @@ export default function ConfigsPage() {
         setCreated([]);
         return;
       }
-      // For operator/admin non-root: show live list by selected panel
+      // For operator/admin non-root: try own created list first; fallback to live list by selected panel
+      try {
+        const mine = await apiFetch(`/panels/created/me`);
+        const items = (mine?.items || []).map((it:any)=> ({ id: it.id, panel_id: it.panel_id, username: it.username, created_at: it.created_at, subscription_url: it.subscription_url }));
+        if (items.length) {
+          setCreated(items);
+          void loadInfoForRows(items.map((it:any)=> ({ id: it.id, panel_id: it.panel_id, username: it.username })));
+          return;
+        }
+      } catch {}
       const pid = parseInt(panelId, 10);
       if (pid) {
         try {
@@ -186,20 +195,19 @@ export default function ConfigsPage() {
     setBusy(true);
     setResult(null);
     try {
+      // Prefer assigned template's panel always for operators
       let pid = parseInt(panelId, 10);
-      if (!pid) {
-        try {
-          const tpl = await apiFetch("/templates/assigned/me");
-          if (tpl && typeof tpl.panel_id === 'number') pid = Number(tpl.panel_id);
-        } catch {}
-      }
+      try {
+        const tpl = await apiFetch("/templates/assigned/me");
+        if (tpl && typeof tpl.panel_id === 'number') pid = Number(tpl.panel_id);
+      } catch {}
       if (!pid) {
         try {
           const def = await apiFetch("/panels/default");
           if (def && typeof def.id === 'number') pid = Number(def.id);
         } catch {}
       }
-      // Ensure operator has access to this panel; otherwise fallback to first of /panels/my
+      // Ensure operator has access; otherwise fallback to first of /panels/my
       try {
         const mine = await apiFetch("/panels/my");
         if (Array.isArray(mine) && mine.length > 0) {
@@ -442,27 +450,29 @@ export default function ConfigsPage() {
           </div>
         </CardContent>
       </Card>
-
-      <Card className="neon-card">
-        <CardHeader>
-          <CardTitle className="neon-text">حذف کاربر از پنل</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={deleteUser} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-            <div className="space-y-1">
-              <label className="text-sm">نام کاربر</label>
-              <NeonTilt><input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required /></NeonTilt>
-            </div>
-            {Array.isArray(panels) && panels.length > 0 && (
-              <NeonTilt><DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} /></NeonTilt>
-            )}
-            <div className="col-span-full flex flex-col sm:flex-row gap-2">
-              <Button type="submit" variant="destructive" className="btn-neon" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
-            </div>
-            {delMsg && <div className="col-span-full text-sm text-muted-foreground">{delMsg}</div>}
-          </form>
-        </CardContent>
-      </Card>
+ 
+      {isRootAdmin && (
+        <Card className="neon-card">
+          <CardHeader>
+            <CardTitle className="neon-text">حذف کاربر از پنل</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={deleteUser} className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+              <div className="space-y-1">
+                <label className="text-sm">نام کاربر</label>
+                <NeonTilt><input className="w-full h-10 px-3 rounded-md border bg-background" value={delUser} onChange={e=>setDelUser(e.target.value)} placeholder="example_user" required /></NeonTilt>
+              </div>
+              {Array.isArray(panels) && panels.length > 0 && (
+                <NeonTilt><DefaultAwarePanelSelect panels={panels} panelId={panelId} setPanelId={setPanelId} /></NeonTilt>
+              )}
+              <div className="col-span-full flex flex-col sm:flex-row gap-2">
+                <Button type="submit" variant="destructive" className="btn-neon" disabled={delBusy || !delUser || !panelId}>حذف کاربر</Button>
+              </div>
+              {delMsg && <div className="col-span-full text-sm text-muted-foreground">{delMsg}</div>}
+            </form>
+          </CardContent>
+        </Card>
+      )}
     </main>
   );
 }

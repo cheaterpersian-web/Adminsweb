@@ -27,6 +27,30 @@ from app.services.audit import record_audit_event
 
 router = APIRouter()
 
+def _join_url(base_url: str, path: str) -> str:
+    b = (base_url or "").rstrip("/")
+    p = path if path.startswith("/") else "/" + path
+    lb = b.lower()
+    if lb.endswith("/xui") and p.startswith("/xui/"):
+        b = b[:-4]
+    elif lb.endswith("/panel") and p.startswith("/panel/"):
+        b = b[:-6]
+    return b + p
+
+def effective_price_for_user(db: Session, user: User, plan_obj: Plan) -> Decimal:
+    try:
+        base = Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if user.role != "operator":
+            return base
+        upt = db.query(UserPlanTemplate).filter(UserPlanTemplate.user_id == user.id).first()
+        if not upt:
+            return base
+        it = db.query(PlanTemplateItem).filter(PlanTemplateItem.template_id == upt.template_id, PlanTemplateItem.plan_id == plan_obj.id).first()
+        return Decimal(str(it.price_override)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if it else base
+    except Exception:
+        return Decimal(str(plan_obj.price)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
 
 class PanelCreate(BaseModel):
     name: str
@@ -101,6 +125,15 @@ def get_default_panel(db: Session = Depends(get_db), _: User = Depends(require_r
 
 @router.post("/panels/{panel_id}/default", response_model=PanelRead)
 def set_default_panel(panel_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
+    # If operator has an assigned template bound to a specific panel, override requested panel_id
+    if current_user.role == "operator":
+        try:
+            ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+            tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+            if tpl and tpl.panel_id:
+                panel_id = int(tpl.panel_id)
+        except Exception:
+            pass
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -165,7 +198,7 @@ class PanelTestResponse(BaseModel):
 
 async def _try_login(base_url: str, username: str, password: str) -> tuple[bool, Optional[str], Optional[int], Optional[str]]:
     # Use official Marzban endpoint first
-    async with httpx.AsyncClient(timeout=10.0, verify=False) as client:  # verify=False to allow self-signed during tests
+    async with httpx.AsyncClient(timeout=10.0, verify=False, follow_redirects=True) as client:  # allow redirects
         url = base_url.rstrip("/") + "/api/admin/token"
         last_error = None
         for method in ("form", "json"):
@@ -207,7 +240,7 @@ async def _try_login(base_url: str, username: str, password: str) -> tuple[bool,
 async def _try_login_xui(base_url: str, username: str, password: str) -> tuple[bool, Optional[str], Optional[int], Optional[str]]:
     # X-UI typically uses cookie-based auth via /login or /xui/login
     last_error = None
-    async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
+    async with httpx.AsyncClient(timeout=10.0, verify=False, follow_redirects=True) as client:
         for path in ("/xui/login", "/login"):
             url = base_url.rstrip("/") + path
             try:
@@ -271,7 +304,7 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
         raise HTTPException(status_code=404, detail="Panel not found")
     # XUI: cookie-based and endpoints differ
     if getattr(panel, "type", "marzban") == "xui":
-        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+        async with httpx.AsyncClient(timeout=15.0, verify=False, follow_redirects=True) as client:
             # login (try several field variants)
             logged_in = False
             login_variants = [
@@ -349,7 +382,7 @@ async def list_inbounds(panel_id: int, db: Session = Depends(get_db), _: User = 
         raise HTTPException(status_code=502, detail="Login to panel failed")
     headers = {"Authorization": f"Bearer {token}"}
     url = panel.base_url.rstrip("/") + "/api/inbounds"
-    async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
+    async with httpx.AsyncClient(timeout=15.0, verify=False, follow_redirects=True) as client:
         res = await client.get(url, headers=headers)
         if not res.headers.get("content-type", "").startswith("application/json"):
             raise HTTPException(status_code=502, detail="Unexpected response")
@@ -434,32 +467,44 @@ async def list_panel_users(panel_id: int, db: Session = Depends(get_db), current
     cred_username = panel.username
     cred_password = panel.password
     if current_user.role == "operator":
-        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if rec:
-            cred_username = rec.username
-            cred_password = rec.password
-        else:
-            # Fallback: allow using panel default credentials only if a template is assigned to this operator for this panel
+        if getattr(panel, "type", "marzban") == "xui":
+            # For XUI, always use panel admin credentials; enforce operator is assigned to this panel
             try:
                 ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
-                if not ut:
-                    raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-                tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
                 if not tpl or tpl.panel_id != panel_id:
-                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
-                # else: keep using panel.username/password
+                    raise HTTPException(status_code=403, detail="Operator not assigned to this XUI panel")
             except HTTPException:
                 raise
             except Exception:
-                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
+                raise HTTPException(status_code=403, detail="Operator assignment not found for this panel")
+        else:
+            rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+            if rec:
+                cred_username = rec.username
+                cred_password = rec.password
+            else:
+                # Fallback: allow using panel default credentials only if a template is assigned to this operator for this panel
+                try:
+                    ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                    if not ut:
+                        raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
+                    tpl = db.query(Template).filter(Template.id == ut.template_id).first()
+                    if not tpl or tpl.panel_id != panel_id:
+                        raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+                    # else: keep using panel.username/password
+                except HTTPException:
+                    raise
+                except Exception:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found")
     # XUI branch
     if getattr(panel, "type", "marzban") == "xui":
-        async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        async with httpx.AsyncClient(timeout=20.0, verify=False, follow_redirects=True) as client:
             # login cookie
             logged_in = False
             for path in ("/xui/login", "/login"):
                 try:
-                    r = await client.post(panel.base_url.rstrip("/") + path, data={"username": cred_username, "password": cred_password, "remember": "on"})
+                    r = await client.post(_join_url(panel.base_url, path), data={"username": cred_username, "password": cred_password, "remember": "on"})
                     if r.status_code in (200, 204, 302) and (r.headers.get("set-cookie") or r.headers.get("Set-Cookie")):
                         logged_in = True
                         break
@@ -676,6 +721,18 @@ def list_created_users(db: Session = Depends(get_db), _: User = Depends(require_
     return CreatedUsersResponse(items=items)
 
 
+@router.get("/panels/created/me", response_model=CreatedUsersResponse)
+def list_created_users_me(db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+    rows = (
+        db.query(PanelCreatedUser)
+        .filter(PanelCreatedUser.created_by_user_id == current_user.id)
+        .order_by(PanelCreatedUser.id.desc())
+        .all()
+    )
+    items = [CreatedUserItem(id=r.id, panel_id=r.panel_id, username=r.username, subscription_url=r.subscription_url, created_at=r.created_at) for r in rows]
+    return CreatedUsersResponse(items=items)
+
+
 @router.get("/panels/created/by-user/{user_id}", response_model=CreatedUsersResponse)
 def list_created_users_by_user(user_id: int, db: Session = Depends(get_db), _: User = Depends(require_root_admin)):
     rows = db.query(PanelCreatedUser).filter(PanelCreatedUser.created_by_user_id == user_id).order_by(PanelCreatedUser.id.desc()).all()
@@ -801,20 +858,32 @@ async def get_panel_user_info(panel_id: int, username: str, db: Session = Depend
     cred_username = panel.username
     cred_password = panel.password
     if current_user.role == "operator":
-        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if rec:
-            cred_username = rec.username
-            cred_password = rec.password
-        else:
+        if getattr(panel, "type", "marzban") == "xui":
+            # For XUI, always use panel admin credentials; enforce operator assignment
             try:
                 ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
                 tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
                 if not tpl or tpl.panel_id != panel_id:
-                    raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+                    raise HTTPException(status_code=403, detail="Operator not assigned to this XUI panel")
             except HTTPException:
                 raise
             except Exception:
-                raise HTTPException(status_code=403, detail="Operator panel credentials not found")
+                raise HTTPException(status_code=403, detail="Operator assignment not found for this panel")
+        else:
+            rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
+            if rec:
+                cred_username = rec.username
+                cred_password = rec.password
+            else:
+                try:
+                    ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                    tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+                    if not tpl or tpl.panel_id != panel_id:
+                        raise HTTPException(status_code=403, detail="Operator panel credentials not found for this panel")
+                except HTTPException:
+                    raise
+                except Exception:
+                    raise HTTPException(status_code=403, detail="Operator panel credentials not found")
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
@@ -1142,7 +1211,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
 
     # XUI branch: cookie-based login and addClient API
     if getattr(panel, "type", "marzban") == "xui":
-        async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        async with httpx.AsyncClient(timeout=20.0, verify=False, follow_redirects=True) as client:
             # login
             logged_in = False
             login_variants = [
@@ -1165,11 +1234,23 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
                 logger.error("create_user xui_login_failed trace=%s panel_id=%s", trace_id, panel_id)
                 return PanelUserCreateResponse(ok=False, error="Login to XUI failed")
 
-            # Determine selected inbound (XUI: single inbound required)
-            sel_row = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
-            if not sel_row:
-                return PanelUserCreateResponse(ok=False, error="No inbound selected for this panel")
-            inbound_id = sel_row.inbound_id
+            # Determine selected inbound (XUI)
+            # If operator has assigned template matching this panel, prefer its inbound selection
+            inbound_id = None
+            try:
+                ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+                tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+                if tpl and tpl.panel_id == panel_id:
+                    tpl_inb = db.query(TemplateInbound).filter(TemplateInbound.template_id == tpl.id).first()
+                    if tpl_inb:
+                        inbound_id = tpl_inb.inbound_id
+            except Exception:
+                inbound_id = None
+            if not inbound_id:
+                sel_row = db.query(PanelInbound).filter(PanelInbound.panel_id == panel_id).first()
+                if not sel_row:
+                    return PanelUserCreateResponse(ok=False, error="No inbound selected for this panel")
+                inbound_id = sel_row.inbound_id
             try:
                 inbound_id_int = int(inbound_id)
             except Exception:
@@ -1199,7 +1280,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
                     db.add(wallet)
                     db.commit()
                     db.refresh(wallet)
-                price = _effective_price_for_user(plan)
+                price = effective_price_for_user(db, current_user, plan)
                 wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
                 if wb < price:
                     raise HTTPException(status_code=402, detail="Insufficient wallet balance")
@@ -1227,47 +1308,70 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
                 total_gb_val = max(1, int(round(mb / 1024)))
                 total_bytes_val = mb * 1024 * 1024
 
+            # Generate subId for some XUI variants
+            import secrets, string as _string
+            def _rand_subid(n: int = 12) -> str:
+                alphabet = _string.ascii_lowercase + _string.digits
+                return "".join(secrets.choice(alphabet) for _ in range(n))
+
             base_client = {
                 "enable": True,
                 "email": payload.name,
                 "limitIp": 0,
                 "flow": "",
                 "id": client_id,
+                "subId": _rand_subid(12),
             }
 
             attempts: list[tuple[str, dict, str]] = []
             # JSON API variants
             if inbound_id_int is not None:
+                # Common lowercase API paths
                 attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}}, "json"))
                 attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_bytes_val}}, "json"))
                 attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "settings": {"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}]}}, "json"))
                 attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id_int, "settings": {"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_bytes_val}]}}, "json"))
                 attempts.append(("/panel/api/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}}, "json"))
+                # Uppercase API variants used by some forks
+                attempts.append(("/xui/API/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}}, "json"))
+                attempts.append(("/xui/API/inbounds/addClient", {"id": inbound_id_int, "settings": {"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}]}}, "json"))
+                attempts.append(("/panel/API/inbounds/addClient", {"id": inbound_id_int, "client": {**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}}, "json"))
             # Form variants
             form_base = {"email": payload.name, "enable": "true", "limitIp": "0", "flow": "", "id": client_id}
             attempts.append(("/xui/inbound/addClient", {**form_base, "id": inbound_id, "expiryTime": str(expiry_ms), "totalGB": str(total_gb_val)}, "form"))
             attempts.append(("/xui/inbound/addClient", {**form_base, "id": inbound_id, "expiryTime": str(expiry_ms), "totalGB": str(total_bytes_val)}, "form"))
             attempts.append(("/panel/inbound/addClient", {**form_base, "id": inbound_id, "expiryTime": str(expiry_ms), "totalGB": str(total_gb_val)}, "form"))
+            # Form variant with 'settings' JSON string as required by some XUI builds
+            try:
+                settings_str_gb = json.dumps({"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_gb_val}]})
+                settings_str_bytes = json.dumps({"clients": [{**base_client, "expiryTime": expiry_ms, "totalGB": total_bytes_val}]})
+                attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id, "settings": settings_str_gb}, "form"))
+                attempts.append(("/xui/api/inbounds/addClient", {"id": inbound_id, "settings": settings_str_bytes}, "form"))
+                # Some forks expose direct addClient without api segment
+                attempts.append(("/xui/addClient", {"id": inbound_id, "settings": settings_str_gb}, "form"))
+                attempts.append(("/panel/addClient", {"id": inbound_id, "settings": settings_str_gb}, "form"))
+            except Exception:
+                pass
 
             last_status = None
             last_text = None
             for path, body, mode in attempts:
                 try:
-                    url = panel.base_url.rstrip("/") + path
+                    url = _join_url(panel.base_url, path)
                     if mode == "json":
-                        res = await client.post(url, json=body)
+                        res = await client.post(url, json=body, headers={"Accept": "application/json"})
                     else:
-                        res = await client.post(url, data=body)
+                        res = await client.post(url, data=body, headers={"Accept": "application/json"})
                 except Exception as e:
                     last_status = 0
                     last_text = str(e)
                     logger.error("create_user xui_req_error trace=%s url=%s err=%s", trace_id, url, last_text)
                     continue
                 if 200 <= res.status_code < 300:
-                    # Try fetch fresh inbounds to locate created client and build subscription where possible
+                    # Try to confirm creation by re-fetching inbounds and locating the new client
                     sub_url = None
+                    created_confirmed = False
                     try:
-                        # fetch inbounds
                         inb = None
                         clients_for_inb = []
                         for ep in ("/xui/api/inbounds", "/xui/api/inbounds/list", "/panel/api/inbounds/list", "/panel/inbounds"):
@@ -1294,7 +1398,6 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
                                                 continue
                                             if str(it.get("id") or it.get("tag") or it.get("remark") or "") == str(inbound_id) or str(it.get("tag") or "") == str(inbound_id):
                                                 inb = it
-                                                # extract clients list
                                                 settings = inb.get("settings")
                                                 if isinstance(settings, str):
                                                     try:
@@ -1313,55 +1416,53 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
                         if inb:
                             client_uuid = None
                             client_password = None
-                            # try to find our client by email/name
                             for c in (clients_for_inb or []):
                                 if not isinstance(c, dict):
                                     continue
                                 email = str(c.get("email") or c.get("name") or c.get("username") or "")
                                 if email == payload.name:
+                                    created_confirmed = True
                                     for k in ("id", "uuid", "clientId", "client_id"):
                                         if isinstance(c.get(k), str):
                                             client_uuid = c.get(k)
                                             break
-                                    # trojan often uses password
                                     if isinstance(c.get("password"), str):
                                         client_password = c.get("password")
                                     break
-                            # If response JSON has the id
-                            if not client_uuid:
-                                try:
-                                    j = res.json()
-                                    if isinstance(j, dict):
-                                        for k in ("id", "uuid", "clientId", "client_id"):
-                                            if isinstance(j.get(k), str):
-                                                client_uuid = j.get(k)
-                                                break
-                                except Exception:
-                                    pass
-                            # pick identifier: uuid or password
-                            ident = client_uuid or client_password
+                            ident = (client_uuid or client_password)
                             sub_url = _xui_build_share_link(panel.base_url, inb, payload.name, ident)
                     except Exception:
-                        sub_url = None
-                    # Persist created user
-                    try:
-                        rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
-                        db.add(rec)
-                        db.commit()
-                    except Exception:
-                        db.rollback()
-                    try:
-                        record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
-                    except Exception:
-                        pass
-                    return PanelUserCreateResponse(
-                        ok=True,
-                        username=payload.name,
-                        subscription_url=sub_url,
-                        expire=(expiry_ms // 1000) if expiry_ms else None,
-                        data_limit=(total_bytes_val if total_bytes_val else None),
-                        raw=(res.json() if res.headers.get("content-type", "").startswith("application/json") else None),
-                    )
+                        created_confirmed = False
+
+                    # If confirmation failed, also accept explicit success flags from response JSON
+                    if not created_confirmed:
+                        try:
+                            j = res.json()
+                            if isinstance(j, dict) and (j.get("success") is True or j.get("status") in ("ok", "success", 200)):
+                                created_confirmed = True
+                        except Exception:
+                            pass
+
+                    if created_confirmed:
+                        try:
+                            rec = PanelCreatedUser(panel_id=panel_id, username=payload.name, subscription_url=sub_url, created_by_user_id=current_user.id)
+                            db.add(rec)
+                            db.commit()
+                        except Exception:
+                            db.rollback()
+                        try:
+                            record_audit_event(db, current_user.id, "create_config_user", target=payload.name, meta={"panel_id": panel_id, "plan_id": getattr(payload, 'plan_id', None)})
+                        except Exception:
+                            pass
+                        return PanelUserCreateResponse(
+                            ok=True,
+                            username=payload.name,
+                            subscription_url=sub_url,
+                            expire=(expiry_ms // 1000) if expiry_ms else None,
+                            data_limit=(total_bytes_val if total_bytes_val else None),
+                            raw=(res.json() if res.headers.get("content-type", "").startswith("application/json") else None),
+                        )
+                    # else: try next variant
                 last_status = res.status_code
                 last_text = res.text[:200]
                 logger.warning("create_user xui_resp_non2xx trace=%s url=%s status=%s body=%s", trace_id, url, last_status, last_text)
@@ -1398,7 +1499,7 @@ async def create_user_on_panel(panel_id: int, payload: PanelUserCreateRequest, r
             db.commit()
             db.refresh(wallet)
         # Check balance using effective price
-        price = _effective_price_for_user(plan)
+        price = effective_price_for_user(db, current_user, plan)
         wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
@@ -1571,18 +1672,13 @@ class PanelUserDeleteResponse(BaseModel):
 
 
 @router.post("/panels/{panel_id}/delete_user", response_model=PanelUserDeleteResponse)
-async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(require_roles(["admin", "operator"]))):
+async def delete_user_on_panel(panel_id: int, payload: PanelUserDeleteRequest, db: Session = Depends(get_db), current_user: User = Depends(require_root_admin)):
     panel = db.query(Panel).filter(Panel.id == panel_id).first()
     if not panel:
         raise HTTPException(status_code=404, detail="Panel not found")
+    # Require root admin: always use panel default credentials
     cred_username = panel.username
     cred_password = panel.password
-    if current_user.role == "operator":
-        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         return PanelUserDeleteResponse(ok=False, error="Login to panel failed")
@@ -1615,12 +1711,17 @@ async def set_user_status(panel_id: int, username: str, payload: PanelUserStatus
         raise HTTPException(status_code=404, detail="Panel not found")
     cred_username = panel.username
     cred_password = panel.password
-    if current_user.role == "operator":
-        rec = db.query(UserPanelCredential).filter(UserPanelCredential.user_id == current_user.id, UserPanelCredential.panel_id == panel_id).first()
-        if not rec:
-            raise HTTPException(status_code=403, detail="Operator panel credentials not found. Ask admin to provision your panel access.")
-        cred_username = rec.username
-        cred_password = rec.password
+    if current_user.role == "operator" and getattr(panel, "type", "marzban") == "xui":
+        # For XUI use admin creds; just enforce assignment via template
+        try:
+            ut = db.query(UserTemplate).filter(UserTemplate.user_id == current_user.id).first()
+            tpl = db.query(Template).filter(Template.id == ut.template_id).first() if ut else None
+            if not tpl or tpl.panel_id != panel_id:
+                raise HTTPException(status_code=403, detail="Operator not assigned to this XUI panel")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(status_code=403, detail="Operator assignment not found for this panel")
     token = await _login_get_token(panel.base_url, cred_username, cred_password)
     if not token:
         raise HTTPException(status_code=502, detail="Login to panel failed")
@@ -1811,7 +1912,7 @@ async def extend_user_on_panel(panel_id: int, username: str, payload: PanelUserE
             db.add(wallet)
             db.commit()
             db.refresh(wallet)
-        price = _effective_price_for_user(plan)
+        price = effective_price_for_user(db, current_user, plan)
         wb = Decimal(str(wallet.balance or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if wb < price:
             raise HTTPException(status_code=402, detail="Insufficient wallet balance")
